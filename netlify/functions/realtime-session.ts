@@ -45,6 +45,7 @@ const handler: Handler = async (event) => {
     const response = await client.realtime.calls.create({
       sdp,
       session: {
+        type: 'realtime',
         model: REALTIME_MODEL,
         instructions: 'Tu es le concierge numérique de CELEC. Parle en français. Sois bref et naturel.',
         voice: REALTIME_VOICE,
