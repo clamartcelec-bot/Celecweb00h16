@@ -67,6 +67,7 @@ export function realtimeDevProxy(): Plugin {
           const response = await client.realtime.calls.create({
             sdp,
             session: {
+              type: 'realtime',
               model,
               instructions: 'Tu es le concierge numérique de CELEC. Parle en français. Sois bref et naturel.',
               voice,
