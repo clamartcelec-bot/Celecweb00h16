@@ -70,7 +70,7 @@ export function realtimeDevProxy(): Plugin {
               type: 'realtime',
               model,
               instructions: 'Tu es le concierge numérique de CELEC. Parle en français. Sois bref et naturel.',
-              voice,
+              audio: { output: { voice } },
             },
           });
 
