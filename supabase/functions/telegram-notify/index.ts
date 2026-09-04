@@ -110,6 +110,7 @@ Deno.serve(async (req: Request) => {
     );
 
     let telegramOk = false;
+    let telegramError: string | null = null;
     if (BOT_TOKEN && CHAT_ID) {
       try {
         const tgRes = await fetch(
@@ -124,15 +125,27 @@ Deno.serve(async (req: Request) => {
           }
         );
         telegramOk = tgRes.ok;
-      } catch {
-        // Telegram send failed but request is already saved
+        if (!tgRes.ok) {
+          const tgBody = await tgRes.text().catch(() => "");
+          telegramError = `Telegram API ${tgRes.status}: ${tgBody.slice(0, 300)}`;
+          console.error(telegramError);
+        }
+      } catch (err) {
+        telegramError = `Fetch error: ${(err as Error).message}`;
+        console.error(telegramError);
       }
     } else {
-      console.error("Missing TELEGRAM_NOTIFY_BOT_TOKEN or TELEGRAM_NOTIFY_CHAT_ID");
+      telegramError = "Missing TELEGRAM_NOTIFY_BOT_TOKEN or TELEGRAM_NOTIFY_CHAT_ID";
+      console.error(telegramError);
     }
 
     return new Response(
-      JSON.stringify({ success: true, telegram: telegramOk, request_id: savedRequest.id }),
+      JSON.stringify({
+        success: true,
+        telegram: telegramOk,
+        telegram_error: telegramError,
+        request_id: savedRequest.id,
+      }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
