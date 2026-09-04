@@ -1,4 +1,5 @@
 import type { Plugin } from 'vite';
+import { createConciergeRealtimeSession } from './conciergeRealtimeConfig';
 
 export function realtimeDevProxy(): Plugin {
   return {
@@ -66,12 +67,7 @@ export function realtimeDevProxy(): Plugin {
 
           const response = await client.realtime.calls.create({
             sdp,
-            session: {
-              type: 'realtime',
-              model,
-              instructions: 'Tu es le concierge numérique de CELEC. Parle en français. Sois bref et naturel.',
-              audio: { output: { voice } },
-            },
+            session: createConciergeRealtimeSession(model, voice),
           });
 
           const answerSdp = await response.text();
