@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { Handler } from '@netlify/functions';
+import { createConciergeRealtimeSession } from '../../server/conciergeRealtimeConfig';
 
 const REALTIME_MODEL = process.env.REALTIME_MODEL || 'gpt-realtime-2.1-mini';
 const REALTIME_VOICE = process.env.REALTIME_VOICE || 'coral';
@@ -44,12 +45,7 @@ const handler: Handler = async (event) => {
 
     const response = await client.realtime.calls.create({
       sdp,
-      session: {
-        type: 'realtime',
-        model: REALTIME_MODEL,
-        instructions: 'Tu es le concierge numérique de CELEC. Parle en français. Sois bref et naturel.',
-        audio: { output: { voice: REALTIME_VOICE } },
-      },
+      session: createConciergeRealtimeSession(REALTIME_MODEL, REALTIME_VOICE),
     });
 
     const answerSdp = await response.text();
