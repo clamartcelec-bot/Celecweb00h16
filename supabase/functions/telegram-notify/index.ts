@@ -7,8 +7,8 @@ const corsHeaders = {
     "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const BOT_TOKEN = "8660052613:AAHJk6xTRUge7EbFHg-YBwobdjrv8DXy6-I";
-const CHAT_ID = "1232272455";
+const BOT_TOKEN = Deno.env.get("TELEGRAM_NOTIFY_BOT_TOKEN");
+const CHAT_ID = Deno.env.get("TELEGRAM_NOTIFY_CHAT_ID");
 
 interface NotifyBody {
   category?: string;
@@ -20,6 +20,12 @@ interface NotifyBody {
   guest_phone?: string;
 }
 
+function clean(value: unknown, maxLength: number): string {
+  return typeof value === "string"
+    ? value.replace(/\s+/g, " ").trim().slice(0, maxLength)
+    : "";
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -27,19 +33,53 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body: NotifyBody = await req.json();
+    const allowedCategories = new Set(["depannage", "chantier", "projet", "question", "callback"]);
+    const requestedCategory = clean(body.category, 40);
+    const category = allowedCategories.has(requestedCategory) ? requestedCategory : "question";
+    const description = clean(body.description, 1_600);
+    const guestPhone = clean(body.guest_phone, 40);
+    const userEmail = clean(body.user_email, 200);
+    const source = clean(body.source, 40);
+    const requestedContactPreference = clean(body.contact_preference, 20);
+    const contactPreference = ["email", "phone", "callback"].includes(requestedContactPreference)
+      ? requestedContactPreference
+      : userEmail ? "email" : "phone";
+
+    if (source === "concierge" && (!description || guestPhone.replace(/\D/g, "").length < 8)) {
+      return new Response(
+        JSON.stringify({ error: "Missing or invalid concierge contact details" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (supabaseUrl && serviceKey) {
-      const supabase = createClient(supabaseUrl, serviceKey);
-      await supabase.from("requests").insert({
-        category: body.category || "question",
-        description: body.description || "",
-        contact_preference: body.contact_preference || "email",
-        callback_requested: body.callback_requested || false,
+    if (!supabaseUrl || !serviceKey) {
+      return new Response(
+        JSON.stringify({ error: "Supabase service is not configured" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, serviceKey);
+    const { data: savedRequest, error: insertError } = await supabase
+      .from("requests")
+      .insert({
+        category,
+        description,
+        contact_preference: contactPreference,
+        callback_requested: body.callback_requested === true,
         status: "new",
-        guest_phone: body.guest_phone || null,
-      });
+        guest_phone: guestPhone || null,
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      return new Response(
+        JSON.stringify({ error: "Unable to save request" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const categoryLabels: Record<string, string> = {
@@ -49,51 +89,56 @@ Deno.serve(async (req: Request) => {
       question: "Question",
     };
     const label =
-      categoryLabels[body.category || ""] ||
-      body.category ||
+      categoryLabels[category] ||
+      category ||
       "Nouvelle demande";
 
     const lines = [
       "Nouvelle demande CELEC",
       "",
       "Categorie: " + label,
-      "Description: " + (body.description || "(vide)"),
+      "Description: " + (description || "(vide)"),
     ];
-    if (body.source === "voice") lines.push("Source: Message vocal");
-    if (body.source === "callback") lines.push("Rappel demande");
-    if (body.user_email) lines.push("Compte: " + body.user_email);
-    if (body.guest_phone) lines.push("Tel invite: " + body.guest_phone);
+    if (source === "voice") lines.push("Source: Message vocal");
+    if (source === "callback") lines.push("Rappel demande");
+    if (source === "concierge") lines.push("Source: Concierge vocal");
+    if (userEmail) lines.push("Compte: " + userEmail);
+    if (guestPhone) lines.push("Tel invite: " + guestPhone);
     lines.push(
       "Heure: " +
         new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris" })
     );
 
     let telegramOk = false;
-    try {
-      const tgRes = await fetch(
-        "https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: CHAT_ID,
-            text: lines.join("\n"),
-          }),
-        }
-      );
-      telegramOk = tgRes.ok;
-    } catch {
-      // Telegram send failed but request is already saved
+    if (BOT_TOKEN && CHAT_ID) {
+      try {
+        const tgRes = await fetch(
+          "https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: CHAT_ID,
+              text: lines.join("\n"),
+            }),
+          }
+        );
+        telegramOk = tgRes.ok;
+      } catch {
+        // Telegram send failed but request is already saved
+      }
+    } else {
+      console.error("Missing TELEGRAM_NOTIFY_BOT_TOKEN or TELEGRAM_NOTIFY_CHAT_ID");
     }
 
     return new Response(
-      JSON.stringify({ success: true, telegram: telegramOk }),
+      JSON.stringify({ success: true, telegram: telegramOk, request_id: savedRequest.id }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: (err as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
