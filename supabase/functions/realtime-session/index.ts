@@ -134,24 +134,25 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    const sessionConfig = JSON.stringify({
+      type: "realtime",
+      model: REALTIME_MODEL,
+      instructions: INSTRUCTIONS,
+      audio: { output: { voice: REALTIME_VOICE } },
+      tools: TOOLS,
+      tool_choice: "auto",
+    });
+
+    const fd = new FormData();
+    fd.set("sdp", sdp);
+    fd.set("session", sessionConfig);
+
     const res = await fetch("https://api.openai.com/v1/realtime/calls", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: REALTIME_MODEL,
-        sdp,
-        session: {
-          type: "realtime",
-          model: REALTIME_MODEL,
-          instructions: INSTRUCTIONS,
-          audio: { output: { voice: REALTIME_VOICE } },
-          tools: TOOLS,
-          tool_choice: "auto",
-        },
-      }),
+      body: fd,
     });
 
     if (!res.ok) {
