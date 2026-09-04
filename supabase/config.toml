@@ -3,3 +3,6 @@ verify_jwt = false
 
 [functions.telegram-carnet]
 verify_jwt = false
+
+[functions.realtime-session]
+verify_jwt = false

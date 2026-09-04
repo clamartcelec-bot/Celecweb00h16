@@ -19,6 +19,13 @@ export async function createRealtimeSession(
   onDataMessage: (msg: DataChannelMessage) => void,
   onConnectionStateChange: (state: RTCPeerConnectionState) => void,
 ): Promise<WebRTCSession> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !anonKey) {
+    throw new Error("La configuration du concierge vocal n'est pas disponible.");
+  }
+
   const pc = new RTCPeerConnection();
 
   pc.addEventListener('connectionstatechange', () => {
@@ -71,9 +78,13 @@ export async function createRealtimeSession(
     throw new Error('No SDP offer generated');
   }
 
-  const response = await fetch('/.netlify/functions/realtime-session', {
+  const response = await fetch(`${supabaseUrl}/functions/v1/realtime-session`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+    },
     body: JSON.stringify({ sdp: offer.sdp }),
   });
 
