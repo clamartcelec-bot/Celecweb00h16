@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   X, ShieldCheck, Users, Mail, Phone, Calendar, ChevronDown, ChevronUp,
-  MessageSquare, LayoutDashboard, MapPin, ArrowUpRight,
-  Receipt, PhoneCall, StickyNote, Search, Camera, Plus, Trash2,
-  Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake
+  LayoutDashboard, MapPin, ArrowUpRight,
+  Receipt, Search, Camera, Plus, Trash2,
+  Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
+  Megaphone, Briefcase, FolderOpen, Settings
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -41,16 +42,6 @@ interface Invoice {
   paid_at: string | null;
 }
 
-interface Exchange {
-  id: string;
-  user_id: string;
-  type: string;
-  summary: string;
-  details: string | null;
-  author: string;
-  happened_at: string;
-}
-
 interface PhotoRow {
   id: string;
   title: string;
@@ -78,12 +69,6 @@ interface PhotoImage {
   position: number;
 }
 
-interface AdminDashboardProps {
-  onClose: () => void;
-}
-
-type Tab = 'overview' | 'clients' | 'requests' | 'invoices' | 'exchanges' | 'carnet' | 'partners';
-
 interface PartnerRow {
   id: string;
   name: string;
@@ -93,6 +78,24 @@ interface PartnerRow {
   published: boolean;
   created_at: string;
 }
+
+interface CarnetSettings {
+  id: number;
+  ai_prompt: string;
+  ai_style: string;
+  ai_model: string;
+  activity_context: string;
+  detect_brands: boolean;
+  auto_transcribe: boolean;
+  updated_at: string;
+}
+
+interface AdminDashboardProps {
+  onClose: () => void;
+}
+
+type Section = 'communication' | 'commercial' | 'administratif';
+type SubTab = 'carnet' | 'partners' | 'ai_settings' | 'overview' | 'clients' | 'requests' | 'invoices' | 'admin_docs';
 
 const statusLabel: Record<string, string> = {
   new: 'Nouveau', to_call: 'A rappeler', in_progress: 'En cours',
@@ -106,19 +109,32 @@ const statusColor: Record<string, string> = {
   draft: '#6b7280', sent: '#3b82f6', paid: '#10b981', overdue: '#ef4444',
 };
 
-const typeIcons: Record<string, typeof Phone> = {
-  call: PhoneCall, email: Mail, visit: MapPin, sms: MessageSquare, note: StickyNote,
-};
-
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
 const fmtAmount = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
 
+const sectionSubTabs: Record<Section, { key: SubTab; label: string; icon: typeof Users }[]> = {
+  communication: [
+    { key: 'carnet', label: 'Carnet', icon: Camera },
+    { key: 'partners', label: 'Partenaires', icon: Handshake },
+    { key: 'ai_settings', label: 'Reglages IA', icon: Settings },
+  ],
+  commercial: [
+    { key: 'overview', label: 'Apercu', icon: LayoutDashboard },
+    { key: 'clients', label: 'Clients', icon: Users },
+    { key: 'requests', label: 'Demandes', icon: Mail },
+    { key: 'invoices', label: 'Factures', icon: Receipt },
+  ],
+  administratif: [
+    { key: 'admin_docs', label: 'Documents', icon: FolderOpen },
+  ],
+};
+
 export function AdminDashboard({ onClose }: AdminDashboardProps) {
-  const [tab, setTab] = useState<Tab>('overview');
+  const [section, setSection] = useState<Section>('commercial');
+  const [subTab, setSubTab] = useState<SubTab>('overview');
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [photos, setPhotos] = useState<PhotoRow[]>([]);
   const [partnersList, setPartnersList] = useState<PartnerRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,11 +148,10 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
     if (!supabase) return;
     setLoading(true);
     setError('');
-    const [pRes, rRes, iRes, eRes, phRes, piRes, partRes] = await Promise.all([
+    const [pRes, rRes, iRes, phRes, piRes, partRes] = await Promise.all([
       supabase.from('profiles').select('*').order('created_at', { ascending: false }),
       supabase.from('requests').select('*').order('created_at', { ascending: false }),
       supabase.from('invoices').select('*').order('issued_at', { ascending: false }),
-      supabase.from('exchanges').select('*').order('happened_at', { ascending: false }),
       supabase.from('photos').select('*, raw_data, detected_brands, voice_transcript, ai_summary, source').order('created_at', { ascending: false }),
       supabase.from('photo_images').select('*').order('position', { ascending: true }),
       supabase.from('partners').select('*').order('position', { ascending: true }),
@@ -150,7 +165,6 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
     setProfiles(pRes.data ?? []);
     setRequests(rRes.data ?? []);
     setInvoices(iRes.data ?? []);
-    setExchanges(eRes.data ?? []);
     setPhotos(photosWithImages);
     setPartnersList(partRes.data ?? []);
     setLoading(false);
@@ -163,6 +177,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
 
   const clientProfiles = profiles.filter(p => p.role !== 'admin');
   const activeRequests = requests.filter(r => r.status !== 'done');
+  const newRequests = requests.filter(r => r.status === 'new');
   const unpaidInvoices = invoices.filter(i => i.status !== 'paid');
   const totalRevenue = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
 
@@ -172,15 +187,18 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
     return p.email.toLowerCase().includes(q) || (p.full_name ?? '').toLowerCase().includes(q) || (p.phone ?? '').includes(q);
   });
 
-  const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
-    { key: 'overview', label: 'Apercu', icon: LayoutDashboard },
-    { key: 'clients', label: 'Clients', icon: Users },
-    { key: 'requests', label: 'Demandes', icon: Mail },
-    { key: 'invoices', label: 'Factures', icon: Receipt },
-    { key: 'exchanges', label: 'Echanges', icon: MessageSquare },
-    { key: 'carnet', label: 'Carnet', icon: Camera },
-    { key: 'partners', label: 'Partenaires', icon: Handshake },
+  const handleSectionChange = (s: Section) => {
+    setSection(s);
+    setSubTab(sectionSubTabs[s][0].key);
+  };
+
+  const sections: { key: Section; label: string; icon: typeof Megaphone }[] = [
+    { key: 'commercial', label: 'Commercial', icon: Briefcase },
+    { key: 'communication', label: 'Communication', icon: Megaphone },
+    { key: 'administratif', label: 'Administratif', icon: FolderOpen },
   ];
+
+  const draftCount = photos.filter(p => !p.published).length;
 
   return (
     <div className="overlay admin-overlay" onClick={onClose}>
@@ -197,13 +215,47 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
           <button className="modal-x" onClick={onClose}><X size={18} /></button>
         </div>
 
-        <div className="adm-tabs">
-          {tabs.map(t => {
-            const Icon = t.icon;
+        {/* ── Mega-tabs (sections) ── */}
+        <div className="adm-sections">
+          {sections.map(s => {
+            const Icon = s.icon;
+            const hasNotif = s.key === 'commercial' && newRequests.length > 0;
+            const hasCommNotif = s.key === 'communication' && draftCount > 0;
             return (
-              <button key={t.key} className={`adm-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)}>
-                <Icon size={15} />
+              <button
+                key={s.key}
+                className={`adm-section-btn ${section === s.key ? 'active' : ''}`}
+                onClick={() => handleSectionChange(s.key)}
+              >
+                <Icon size={16} />
+                <span>{s.label}</span>
+                {hasNotif && <span className="adm-section-dot">{newRequests.length}</span>}
+                {hasCommNotif && <span className="adm-section-dot comm">{draftCount}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Sub-tabs ── */}
+        <div className="adm-subtabs">
+          {sectionSubTabs[section].map(t => {
+            const Icon = t.icon;
+            const isReqs = t.key === 'requests';
+            const isCarnet = t.key === 'carnet';
+            return (
+              <button
+                key={t.key}
+                className={`adm-subtab ${subTab === t.key ? 'active' : ''}`}
+                onClick={() => setSubTab(t.key)}
+              >
+                <Icon size={14} />
                 <span>{t.label}</span>
+                {isReqs && newRequests.length > 0 && (
+                  <span className="adm-subtab-dot">{newRequests.length}</span>
+                )}
+                {isCarnet && draftCount > 0 && (
+                  <span className="adm-subtab-dot draft">{draftCount}</span>
+                )}
               </button>
             );
           })}
@@ -213,17 +265,18 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
           {loading && <p className="adm-msg">Chargement...</p>}
           {error && <p className="adm-msg adm-err">{error}</p>}
 
-          {!loading && tab === 'overview' && (
+          {/* ── COMMERCIAL: Apercu ── */}
+          {!loading && subTab === 'overview' && (
             <>
               <div className="adm-kpi-row">
-                <KpiCard label="Clients" value={clientProfiles.length} color="#3b82f6" onClick={() => setTab('clients')} />
-                <KpiCard label="Demandes actives" value={activeRequests.length} color="#e8336a" onClick={() => setTab('requests')} />
-                <KpiCard label="Factures en attente" value={unpaidInvoices.length} color="#f59e0b" onClick={() => setTab('invoices')} />
-                <KpiCard label="CA encaisse" value={fmtAmount(totalRevenue)} color="#10b981" onClick={() => setTab('invoices')} />
+                <KpiCard label="Clients" value={clientProfiles.length} color="#3b82f6" onClick={() => setSubTab('clients')} />
+                <KpiCard label="Demandes actives" value={activeRequests.length} color="#e8336a" onClick={() => setSubTab('requests')} />
+                <KpiCard label="Factures en attente" value={unpaidInvoices.length} color="#f59e0b" onClick={() => setSubTab('invoices')} />
+                <KpiCard label="CA encaisse" value={fmtAmount(totalRevenue)} color="#10b981" onClick={() => setSubTab('invoices')} />
               </div>
               <div className="adm-kpi-row" style={{ gridTemplateColumns: 'repeat(2,1fr)' }}>
-                <KpiCard label="Photos au carnet" value={photos.length} color="#8b5cf6" onClick={() => setTab('carnet')} />
-                <KpiCard label="Echanges" value={exchanges.length} color="#06b6d4" onClick={() => setTab('exchanges')} />
+                <KpiCard label="Photos au carnet" value={photos.length} color="#0ea5e9" onClick={() => { setSection('communication'); setSubTab('carnet'); }} />
+                <KpiCard label="Brouillons" value={draftCount} color="#f59e0b" onClick={() => { setSection('communication'); setSubTab('carnet'); }} />
               </div>
               <div className="adm-recent-grid">
                 <div className="adm-recent">
@@ -239,25 +292,23 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
                   {requests.length === 0 && <p className="adm-empty-sm">Aucune demande.</p>}
                 </div>
                 <div className="adm-recent">
-                  <h3>Derniers echanges</h3>
-                  {exchanges.slice(0, 5).map(ex => {
-                    const Icon = typeIcons[ex.type] || MessageSquare;
-                    return (
-                      <div key={ex.id} className="adm-recent-item">
-                        <Icon size={13} className="adm-ri-icon" />
-                        <span className="adm-ri-desc">{ex.summary}</span>
-                        <span className="adm-ri-who">{nameOf(ex.user_id)}</span>
-                        <span className="adm-ri-date">{fmtDate(ex.happened_at)}</span>
-                      </div>
-                    );
-                  })}
-                  {exchanges.length === 0 && <p className="adm-empty-sm">Aucun echange.</p>}
+                  <h3>Derniers billets</h3>
+                  {photos.slice(0, 5).map(p => (
+                    <div key={p.id} className="adm-recent-item">
+                      <span className="adm-dot" style={{ background: p.published ? '#10b981' : '#f59e0b' }} />
+                      <span className="adm-ri-desc">{p.title}</span>
+                      <span className="adm-ri-who">{p.city || '—'}</span>
+                      <span className="adm-ri-date">{fmtDate(p.created_at)}</span>
+                    </div>
+                  ))}
+                  {photos.length === 0 && <p className="adm-empty-sm">Aucun billet.</p>}
                 </div>
               </div>
             </>
           )}
 
-          {!loading && tab === 'clients' && (
+          {/* ── COMMERCIAL: Clients ── */}
+          {!loading && subTab === 'clients' && (
             <>
               <div className="adm-search">
                 <Search size={15} />
@@ -268,7 +319,6 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
                 {filteredProfiles.map(p => {
                   const uReqs = requests.filter(r => r.user_id === p.id);
                   const uInvs = invoices.filter(i => i.user_id === p.id);
-                  const uExs = exchanges.filter(ex => ex.user_id === p.id);
                   const isOpen = expandedUser === p.id;
                   return (
                     <div key={p.id} className="adm-client-card">
@@ -283,7 +333,6 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
                         <div className="adm-client-right">
                           <span className="adm-pill">{uReqs.length} dem.</span>
                           <span className="adm-pill">{uInvs.length} fact.</span>
-                          <span className="adm-pill">{uExs.length} ech.</span>
                           {isOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                         </div>
                       </div>
@@ -319,22 +368,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
                               ))}
                             </div>
                           )}
-                          {uExs.length > 0 && (
-                            <div className="adm-detail-section">
-                              <h4>Echanges ({uExs.length})</h4>
-                              {uExs.map(ex => {
-                                const Icon = typeIcons[ex.type] || MessageSquare;
-                                return (
-                                  <div key={ex.id} className="adm-mini">
-                                    <span className="adm-mini-type"><Icon size={12} /> {ex.type}</span>
-                                    <span className="adm-mini-desc">{ex.summary}</span>
-                                    <span className="adm-mini-date">{fmtDate(ex.happened_at)}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {uReqs.length === 0 && uInvs.length === 0 && uExs.length === 0 && (
+                          {uReqs.length === 0 && uInvs.length === 0 && (
                             <p className="adm-empty-sm">Aucune activite pour ce client.</p>
                           )}
                         </div>
@@ -346,13 +380,14 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
             </>
           )}
 
-          {!loading && tab === 'requests' && (
+          {/* ── COMMERCIAL: Demandes ── */}
+          {!loading && subTab === 'requests' && (
             <div className="adm-list">
               {requests.length === 0 && <p className="adm-msg">Aucune demande.</p>}
               {requests.map(r => {
                 const owner = profiles.find(p => p.id === r.user_id);
                 return (
-                  <div key={r.id} className="adm-req-card">
+                  <div key={r.id} className={`adm-req-card ${r.status === 'new' ? 'adm-req-new' : ''}`}>
                     <div className="adm-req-top">
                       <span className="adm-mini-tag">{r.category}</span>
                       <span style={{ color: statusColor[r.status], fontWeight: 600, fontSize: 11 }}>{statusLabel[r.status] || r.status}</span>
@@ -371,7 +406,8 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
             </div>
           )}
 
-          {!loading && tab === 'invoices' && (
+          {/* ── COMMERCIAL: Factures ── */}
+          {!loading && subTab === 'invoices' && (
             <div className="adm-list">
               <div className="adm-inv-summary">
                 <div className="adm-inv-stat">
@@ -406,32 +442,29 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
             </div>
           )}
 
-          {!loading && tab === 'exchanges' && (
-            <div className="adm-list">
-              {exchanges.length === 0 && <p className="adm-msg">Aucun echange.</p>}
-              {exchanges.map(ex => {
-                const Icon = typeIcons[ex.type] || MessageSquare;
-                return (
-                  <div key={ex.id} className="adm-ex-card">
-                    <div className="adm-ex-top">
-                      <span className="adm-ex-type"><Icon size={13} /> {ex.type}</span>
-                      <span className="adm-ex-author">{ex.author}</span>
-                      <span className="adm-req-owner">{nameOf(ex.user_id)}</span>
-                      <span className="adm-mini-date" style={{ marginLeft: 'auto' }}>{fmtDate(ex.happened_at)}</span>
-                    </div>
-                    <p className="adm-ex-summary">{ex.summary}</p>
-                    {ex.details && <p className="adm-ex-details">{ex.details}</p>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {!loading && tab === 'carnet' && (
+          {/* ── COMMUNICATION: Carnet ── */}
+          {!loading && subTab === 'carnet' && (
             <CarnetTab photos={photos} onRefresh={loadData} />
           )}
-          {!loading && tab === 'partners' && (
+
+          {/* ── COMMUNICATION: Partenaires ── */}
+          {!loading && subTab === 'partners' && (
             <PartnersTab partners={partnersList} onRefresh={loadData} />
+          )}
+
+          {/* ── COMMUNICATION: Reglages IA ── */}
+          {!loading && subTab === 'ai_settings' && (
+            <CarnetSettingsTab />
+          )}
+
+          {/* ── ADMINISTRATIF ── */}
+          {!loading && subTab === 'admin_docs' && (
+            <div className="adm-placeholder">
+              <FolderOpen size={48} />
+              <h3>Documents administratifs</h3>
+              <p>Kbis, assurances, certifications et autres documents seront geres ici.</p>
+              <span>Bientot disponible</span>
+            </div>
           )}
         </div>
       </div>
@@ -449,7 +482,134 @@ function KpiCard({ label, value, color, onClick }: { label: string; value: strin
   );
 }
 
-/* ── Carnet Tab (multi-image support) ── */
+/* ── AI Settings Tab ── */
+
+function CarnetSettingsTab() {
+  const [settings, setSettings] = useState<CarnetSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from('carnet_settings').select('*').eq('id', 1).maybeSingle().then(({ data, error }) => {
+      if (error) { setErr(error.message); setLoading(false); return; }
+      setSettings(data);
+      setLoading(false);
+    });
+  }, []);
+
+  const handleSave = async () => {
+    if (!supabase || !settings) return;
+    setSaving(true);
+    setErr('');
+    setMsg('');
+    const { error } = await supabase.from('carnet_settings').update({
+      ai_prompt: settings.ai_prompt,
+      ai_style: settings.ai_style,
+      ai_model: settings.ai_model,
+      activity_context: settings.activity_context,
+      detect_brands: settings.detect_brands,
+      auto_transcribe: settings.auto_transcribe,
+      updated_at: new Date().toISOString(),
+    }).eq('id', 1);
+    if (error) { setErr(error.message); setSaving(false); return; }
+    setMsg('Parametres enregistres.');
+    setSaving(false);
+    setTimeout(() => setMsg(''), 3000);
+  };
+
+  if (loading) return <p className="adm-msg">Chargement des parametres...</p>;
+  if (!settings) return <p className="adm-msg adm-err">Impossible de charger les parametres. {err}</p>;
+
+  return (
+    <div className="ai-settings">
+      <div className="ai-settings-head">
+        <Settings size={18} />
+        <div>
+          <h3>Reglages de l'intelligence artificielle</h3>
+          <p className="ai-settings-sub">Ces parametres controlent comment l'IA analyse les photos et messages envoyes par Telegram.</p>
+        </div>
+      </div>
+
+      <div className="crn-fields">
+        <label>
+          <span>Contexte de l'activite</span>
+          <textarea
+            className="field crn-textarea"
+            value={settings.activity_context}
+            onChange={e => setSettings({ ...settings, activity_context: e.target.value })}
+            placeholder="Decrivez votre activite pour que l'IA comprenne le contexte..."
+          />
+        </label>
+
+        <label>
+          <span>Prompt d'analyse IA</span>
+          <textarea
+            className="field ai-prompt-field"
+            value={settings.ai_prompt}
+            onChange={e => setSettings({ ...settings, ai_prompt: e.target.value })}
+            placeholder="Instructions pour l'IA..."
+          />
+        </label>
+
+        <div className="crn-row2">
+          <label>
+            <span>Style de redaction</span>
+            <select
+              className="field"
+              value={settings.ai_style}
+              onChange={e => setSettings({ ...settings, ai_style: e.target.value })}
+            >
+              <option value="professionnel">Professionnel</option>
+              <option value="decontracte">Decontracte</option>
+              <option value="technique">Technique</option>
+              <option value="pedagogique">Pedagogique</option>
+            </select>
+          </label>
+          <label>
+            <span>Modele IA</span>
+            <select
+              className="field"
+              value={settings.ai_model}
+              onChange={e => setSettings({ ...settings, ai_model: e.target.value })}
+            >
+              <option value="gpt-4o-mini">GPT-4o Mini (rapide)</option>
+              <option value="gpt-4o">GPT-4o (precis)</option>
+              <option value="gpt-4-turbo">GPT-4 Turbo</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="ai-toggles">
+          <label className="crn-check">
+            <input type="checkbox" checked={settings.detect_brands} onChange={e => setSettings({ ...settings, detect_brands: e.target.checked })} />
+            <span>Detecter les marques dans les photos</span>
+          </label>
+          <label className="crn-check">
+            <input type="checkbox" checked={settings.auto_transcribe} onChange={e => setSettings({ ...settings, auto_transcribe: e.target.checked })} />
+            <span>Transcrire les messages vocaux</span>
+          </label>
+        </div>
+      </div>
+
+      {err && <p className="adm-msg adm-err">{err}</p>}
+      {msg && <p className="adm-msg ai-success">{msg}</p>}
+
+      <button className="btn-pink crn-save" onClick={handleSave} disabled={saving}>
+        <Save size={15} />
+        {saving ? 'Enregistrement...' : 'Enregistrer les parametres'}
+      </button>
+
+      {settings.updated_at && (
+        <p className="ai-last-update">Derniere modification : {fmtDate(settings.updated_at)}</p>
+      )}
+    </div>
+  );
+}
+
+/* ── Carnet Tab ── */
 
 interface FrenchCity {
   id: number;
@@ -532,32 +692,12 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
   };
 
   const openAdd = () => {
-    setForm(emptyForm);
-    setFiles([]);
-    setPreviews([]);
-    setExistingImages([]);
-    setEditId(null);
-    setErr('');
-    setMode('add');
+    setForm(emptyForm); setFiles([]); setPreviews([]); setExistingImages([]); setEditId(null); setErr(''); setMode('add');
   };
 
   const openEdit = (p: PhotoRow) => {
-    setForm({
-      title: p.title,
-      author: p.author,
-      city: p.city,
-      cityLat: p.lat,
-      cityLng: p.lng,
-      description: p.description ?? '',
-      published: p.published,
-      date: p.created_at.slice(0, 10),
-    });
-    setFiles([]);
-    setPreviews([]);
-    setExistingImages(p.images ?? []);
-    setEditId(p.id);
-    setErr('');
-    setMode('edit');
+    setForm({ title: p.title, author: p.author, city: p.city, cityLat: p.lat, cityLng: p.lng, description: p.description ?? '', published: p.published, date: p.created_at.slice(0, 10) });
+    setFiles([]); setPreviews([]); setExistingImages(p.images ?? []); setEditId(p.id); setErr(''); setMode('edit');
   };
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -570,10 +710,7 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
 
   const removeNewFile = (idx: number) => {
     setFiles(prev => prev.filter((_, i) => i !== idx));
-    setPreviews(prev => {
-      URL.revokeObjectURL(prev[idx]);
-      return prev.filter((_, i) => i !== idx);
-    });
+    setPreviews(prev => { URL.revokeObjectURL(prev[idx]); return prev.filter((_, i) => i !== idx); });
   };
 
   const removeExistingImage = async (imgId: string) => {
@@ -595,22 +732,10 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
   const handleSave = async () => {
     if (!supabase) return;
     if (!form.title.trim()) { setErr('Titre requis.'); return; }
-    setSaving(true);
-    setErr('');
+    setSaving(true); setErr('');
     try {
-      const row = {
-        title: form.title.trim(),
-        author: form.author.trim(),
-        city: form.city.trim(),
-        lat: form.cityLat,
-        lng: form.cityLng,
-        description: form.description.trim() || null,
-        published: form.published,
-        created_at: new Date(form.date).toISOString(),
-      };
-
+      const row = { title: form.title.trim(), author: form.author.trim(), city: form.city.trim(), lat: form.cityLat, lng: form.cityLng, description: form.description.trim() || null, published: form.published, created_at: new Date(form.date).toISOString() };
       let entryId = editId;
-
       if (mode === 'add') {
         const { data, error } = await supabase.from('photos').insert({ ...row, image_url: '', source: 'manual' }).select('id').single();
         if (error) throw new Error(error.message);
@@ -619,29 +744,21 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
         const { error } = await supabase.from('photos').update(row).eq('id', entryId);
         if (error) throw new Error(error.message);
       }
-
       if (files.length > 0 && entryId) {
         const startPos = existingImages.length;
         for (let i = 0; i < files.length; i++) {
           const url = await uploadImage(files[i]);
-          await supabase.from('photo_images').insert({
-            photo_id: entryId,
-            image_url: url,
-            position: startPos + i,
-          });
+          await supabase.from('photo_images').insert({ photo_id: entryId, image_url: url, position: startPos + i });
           if (i === 0 && existingImages.length === 0) {
             await supabase.from('photos').update({ image_url: url }).eq('id', entryId);
           }
         }
       }
-
       await onRefresh();
       setMode('list');
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Erreur inconnue');
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   const handlePublish = async (id: string) => {
@@ -649,8 +766,7 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
     setPublishing(id);
     const { error } = await supabase.from('photos').update({ published: true }).eq('id', id);
     if (error) { setErr(error.message); setPublishing(null); return; }
-    await onRefresh();
-    setPublishing(null);
+    await onRefresh(); setPublishing(null);
   };
 
   const handleUnpublish = async (id: string) => {
@@ -658,8 +774,7 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
     setPublishing(id);
     const { error } = await supabase.from('photos').update({ published: false }).eq('id', id);
     if (error) { setErr(error.message); setPublishing(null); return; }
-    await onRefresh();
-    setPublishing(null);
+    await onRefresh(); setPublishing(null);
   };
 
   const handleDelete = async (id: string) => {
@@ -667,8 +782,7 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
     setDeleting(id);
     const { error } = await supabase.from('photos').delete().eq('id', id);
     if (error) { setErr(error.message); setDeleting(null); return; }
-    await onRefresh();
-    setDeleting(null);
+    await onRefresh(); setDeleting(null);
   };
 
   if (mode === 'add' || mode === 'edit') {
@@ -676,66 +790,38 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
       ...existingImages.map(i => ({ type: 'existing' as const, url: i.image_url, id: i.id })),
       ...previews.map((url, idx) => ({ type: 'new' as const, url, id: String(idx) })),
     ];
-
     return (
       <div className="crn-form">
         <div className="crn-form-head">
           <h3>{mode === 'add' ? 'Nouveau billet' : 'Modifier le billet'}</h3>
           <button className="crn-back" onClick={() => setMode('list')}>Annuler</button>
         </div>
-
         <div className="crn-gallery">
           {allPreviews.map((p, idx) => (
             <div key={`${p.type}-${p.id}`} className="crn-gallery-item">
               <img src={p.url} alt={`Photo ${idx + 1}`} />
-              <button
-                className="crn-gallery-rm"
-                onClick={() => p.type === 'existing' ? removeExistingImage(p.id) : removeNewFile(Number(p.id))}
-              >
-                <X size={12} />
-              </button>
+              <button className="crn-gallery-rm" onClick={() => p.type === 'existing' ? removeExistingImage(p.id) : removeNewFile(Number(p.id))}><X size={12} /></button>
             </div>
           ))}
-          <button className="crn-gallery-add" onClick={() => fileRef.current?.click()}>
-            <Plus size={20} />
-            <span>Ajouter</span>
-          </button>
+          <button className="crn-gallery-add" onClick={() => fileRef.current?.click()}><Plus size={20} /><span>Ajouter</span></button>
           <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFiles} hidden />
         </div>
         <p className="crn-hint">Les images sont optionnelles. Vous pouvez en ajouter plusieurs.</p>
-
         <div className="crn-fields">
           <div className="crn-row2">
-            <label>
-              <span>Titre</span>
-              <input className="field" placeholder="Ex: Renovation tableau" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
-            </label>
-            <label>
-              <span>Auteur</span>
-              <input className="field" placeholder="Nom de la personne" value={form.author} onChange={e => setForm({ ...form, author: e.target.value })} />
-            </label>
+            <label><span>Titre</span><input className="field" placeholder="Ex: Renovation tableau" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></label>
+            <label><span>Auteur</span><input className="field" placeholder="Nom de la personne" value={form.author} onChange={e => setForm({ ...form, author: e.target.value })} /></label>
           </div>
           <div className="crn-row2">
             <label>
               <span>Ville</span>
               <div className="city-autocomplete" ref={cityInputRef}>
-                <input
-                  className="field"
-                  placeholder="Tapez un nom ou code postal..."
-                  value={form.city}
-                  onChange={e => handleCityInput(e.target.value)}
-                  onFocus={() => { if (form.city.trim().length >= 1) handleCityInput(form.city); }}
-                />
+                <input className="field" placeholder="Tapez un nom ou code postal..." value={form.city} onChange={e => handleCityInput(e.target.value)} onFocus={() => { if (form.city.trim().length >= 1) handleCityInput(form.city); }} />
                 {form.cityLat !== 0 && <MapPin size={13} className="city-check" />}
                 {showCityDropdown && (
                   <div className="city-dropdown">
                     {citySuggestions.map(c => (
-                      <button
-                        key={c.id}
-                        className="city-option"
-                        type="button"
-                        onClick={() => selectCity(c)}
-                      >
+                      <button key={c.id} className="city-option" type="button" onClick={() => selectCity(c)}>
                         <span className="city-option-name">{c.name}</span>
                         <span className="city-option-code">{c.postal_code}</span>
                         {c.department && <span className="city-option-dept">{c.department}</span>}
@@ -745,27 +831,13 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
                 )}
               </div>
             </label>
-            <label>
-              <span>Date</span>
-              <input className="field" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
-            </label>
+            <label><span>Date</span><input className="field" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
           </div>
-          <label>
-            <span>Description</span>
-            <textarea className="field crn-textarea" placeholder="Ce qu'on a fait, ce qu'on a trouve..." value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-          </label>
-          <label className="crn-check">
-            <input type="checkbox" checked={form.published} onChange={e => setForm({ ...form, published: e.target.checked })} />
-            <span>Publier sur le site</span>
-          </label>
+          <label><span>Description</span><textarea className="field crn-textarea" placeholder="Ce qu'on a fait, ce qu'on a trouve..." value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+          <label className="crn-check"><input type="checkbox" checked={form.published} onChange={e => setForm({ ...form, published: e.target.checked })} /><span>Publier sur le site</span></label>
         </div>
-
         {err && <p className="adm-msg adm-err">{err}</p>}
-
-        <button className="btn-pink crn-save" onClick={handleSave} disabled={saving}>
-          <Save size={15} />
-          {saving ? 'Enregistrement...' : mode === 'add' ? 'Creer le billet' : 'Enregistrer'}
-        </button>
+        <button className="btn-pink crn-save" onClick={handleSave} disabled={saving}><Save size={15} />{saving ? 'Enregistrement...' : mode === 'add' ? 'Creer le billet' : 'Enregistrer'}</button>
       </div>
     );
   }
@@ -774,19 +846,12 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
     <>
       <div className="crn-head">
         <span className="crn-count">{photos.length} billet{photos.length > 1 ? 's' : ''} ({drafts.length} brouillon{drafts.length > 1 ? 's' : ''})</span>
-        <button className="btn-pink crn-add" onClick={openAdd}>
-          <Plus size={15} /> Ajouter
-        </button>
+        <button className="btn-pink crn-add" onClick={openAdd}><Plus size={15} /> Ajouter</button>
       </div>
-
       {err && <p className="adm-msg adm-err">{err}</p>}
-
-      {/* ── Drafts section ── */}
       {drafts.length > 0 && (
         <div className="crn-drafts-section">
-          <h3 className="crn-section-title">
-            <EyeOff size={15} /> Brouillons a valider ({drafts.length})
-          </h3>
+          <h3 className="crn-section-title"><EyeOff size={15} /> Brouillons a valider ({drafts.length})</h3>
           <div className="crn-drafts-list">
             {drafts.map(p => {
               const thumbUrl = p.images?.[0]?.image_url || p.image_url;
@@ -796,11 +861,7 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
               return (
                 <div key={p.id} className="crn-draft-card">
                   <div className="crn-draft-main" onClick={() => setExpandedDraft(isExpanded ? null : p.id)}>
-                    {thumbUrl ? (
-                      <img src={thumbUrl} alt={p.title} className="crn-draft-thumb" />
-                    ) : (
-                      <div className="crn-draft-thumb crn-draft-thumb-empty"><Camera size={20} /></div>
-                    )}
+                    {thumbUrl ? <img src={thumbUrl} alt={p.title} className="crn-draft-thumb" /> : <div className="crn-draft-thumb crn-draft-thumb-empty"><Camera size={20} /></div>}
                     <div className="crn-draft-info">
                       <div className="crn-draft-top-row">
                         <h4>{p.title}</h4>
@@ -812,69 +873,21 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
                         {p.author && <span>{p.author}</span>}
                         {p.city && <span><MapPin size={10} /> {p.city}</span>}
                         <span>{fmtDate(p.created_at)}</span>
-                        {brands.length > 0 && (
-                          <span className="crn-brands-inline">{brands.join(', ')}</span>
-                        )}
+                        {brands.length > 0 && <span className="crn-brands-inline">{brands.join(', ')}</span>}
                       </div>
                     </div>
                   </div>
-
                   {isExpanded && (
                     <div className="crn-draft-expanded">
-                      {/* Description / AI summary */}
-                      {p.description && (
-                        <div className="crn-raw-block">
-                          <span className="crn-raw-label">Description (resume IA)</span>
-                          <p>{p.description}</p>
-                        </div>
-                      )}
-
-                      {/* Voice transcript */}
-                      {p.voice_transcript && (
-                        <div className="crn-raw-block">
-                          <span className="crn-raw-label">Transcription vocale</span>
-                          <p>{p.voice_transcript}</p>
-                        </div>
-                      )}
-
-                      {/* Detected brands */}
-                      {brands.length > 0 && (
-                        <div className="crn-raw-block">
-                          <span className="crn-raw-label">Marques detectees</span>
-                          <div className="crn-brands-tags">
-                            {brands.map((b, i) => <span key={i} className="crn-brand-tag">{b}</span>)}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Raw data dump */}
-                      {hasRawData && p.raw_data && (
-                        <details className="crn-raw-details">
-                          <summary>Donnees brutes</summary>
-                          <pre className="crn-raw-json">{JSON.stringify(p.raw_data, null, 2)}</pre>
-                        </details>
-                      )}
-
-                      {/* Gallery of all images */}
-                      {(p.images?.length ?? 0) > 0 && (
-                        <div className="crn-draft-gallery">
-                          {p.images!.map(img => (
-                            <img key={img.id} src={img.image_url} alt="" className="crn-draft-gallery-img" />
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Actions */}
+                      {p.description && <div className="crn-raw-block"><span className="crn-raw-label">Description (resume IA)</span><p>{p.description}</p></div>}
+                      {p.voice_transcript && <div className="crn-raw-block"><span className="crn-raw-label">Transcription vocale</span><p>{p.voice_transcript}</p></div>}
+                      {brands.length > 0 && <div className="crn-raw-block"><span className="crn-raw-label">Marques detectees</span><div className="crn-brands-tags">{brands.map((b, i) => <span key={i} className="crn-brand-tag">{b}</span>)}</div></div>}
+                      {hasRawData && p.raw_data && <details className="crn-raw-details"><summary>Donnees brutes</summary><pre className="crn-raw-json">{JSON.stringify(p.raw_data, null, 2)}</pre></details>}
+                      {(p.images?.length ?? 0) > 0 && <div className="crn-draft-gallery">{p.images!.map(img => <img key={img.id} src={img.image_url} alt="" className="crn-draft-gallery-img" />)}</div>}
                       <div className="crn-draft-actions">
-                        <button className="crn-btn-publish" onClick={() => handlePublish(p.id)} disabled={publishing === p.id}>
-                          <Eye size={13} /> {publishing === p.id ? '...' : 'Publier'}
-                        </button>
-                        <button className="crn-btn-edit" onClick={() => openEdit(p)}>
-                          <Pencil size={13} /> Modifier
-                        </button>
-                        <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}>
-                          <Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}
-                        </button>
+                        <button className="crn-btn-publish" onClick={() => handlePublish(p.id)} disabled={publishing === p.id}><Eye size={13} /> {publishing === p.id ? '...' : 'Publier'}</button>
+                        <button className="crn-btn-edit" onClick={() => openEdit(p)}><Pencil size={13} /> Modifier</button>
+                        <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}><Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}</button>
                       </div>
                     </div>
                   )}
@@ -884,24 +897,8 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
           </div>
         </div>
       )}
-
-      {/* ── Published section ── */}
-      {published.length > 0 && (
-        <div className="crn-published-section">
-          <h3 className="crn-section-title">
-            <Eye size={15} /> Publie ({published.length})
-          </h3>
-        </div>
-      )}
-
-      {photos.length === 0 && (
-        <div className="crn-empty">
-          <ImageIcon size={40} />
-          <p>Aucun billet dans le carnet.</p>
-          <span>Ajoutez votre premier billet ou envoyez une photo par Telegram.</span>
-        </div>
-      )}
-
+      {published.length > 0 && <div className="crn-published-section"><h3 className="crn-section-title"><Eye size={15} /> Publie ({published.length})</h3></div>}
+      {photos.length === 0 && <div className="crn-empty"><ImageIcon size={40} /><p>Aucun billet dans le carnet.</p><span>Ajoutez votre premier billet ou envoyez une photo par Telegram.</span></div>}
       <div className="crn-grid">
         {published.map(p => {
           const imgCount = (p.images?.length ?? 0) + (p.image_url && !p.images?.length ? 1 : 0);
@@ -909,36 +906,16 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
           const brands = p.detected_brands || [];
           return (
             <div key={p.id} className="crn-card">
-              {thumbUrl ? (
-                <div className="crn-img-wrap">
-                  <img src={thumbUrl} alt={p.title} className="crn-img" />
-                  {imgCount > 1 && <span className="crn-img-count">{imgCount} photos</span>}
-                </div>
-              ) : (
-                <div className="crn-img crn-img-empty"><ImageIcon size={24} /></div>
-              )}
+              {thumbUrl ? <div className="crn-img-wrap"><img src={thumbUrl} alt={p.title} className="crn-img" />{imgCount > 1 && <span className="crn-img-count">{imgCount} photos</span>}</div> : <div className="crn-img crn-img-empty"><ImageIcon size={24} /></div>}
               <div className="crn-card-body">
-                <div className="crn-card-top">
-                  <h4>{p.title}</h4>
-                  {p.source === 'telegram' && <span className="crn-badge-source crn-badge-sm">TG</span>}
-                </div>
-                <div className="crn-card-meta">
-                  {p.author && <span>{p.author}</span>}
-                  {p.city && <span><MapPin size={10} /> {p.city}</span>}
-                  <span>{fmtDate(p.created_at)}</span>
-                </div>
-                {brands.length > 0 && (
-                  <div className="crn-card-brands">{brands.join(', ')}</div>
-                )}
+                <div className="crn-card-top"><h4>{p.title}</h4>{p.source === 'telegram' && <span className="crn-badge-source crn-badge-sm">TG</span>}</div>
+                <div className="crn-card-meta">{p.author && <span>{p.author}</span>}{p.city && <span><MapPin size={10} /> {p.city}</span>}<span>{fmtDate(p.created_at)}</span></div>
+                {brands.length > 0 && <div className="crn-card-brands">{brands.join(', ')}</div>}
                 {p.description && <p className="crn-card-desc">{p.description}</p>}
                 <div className="crn-card-actions">
                   <button className="crn-btn-edit" onClick={() => openEdit(p)}><Pencil size={13} /> Modifier</button>
-                  <button className="crn-btn-unpublish" onClick={() => handleUnpublish(p.id)} disabled={publishing === p.id}>
-                    <EyeOff size={13} /> {publishing === p.id ? '...' : 'Depublier'}
-                  </button>
-                  <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}>
-                    <Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}
-                  </button>
+                  <button className="crn-btn-unpublish" onClick={() => handleUnpublish(p.id)} disabled={publishing === p.id}><EyeOff size={13} /> {publishing === p.id ? '...' : 'Depublier'}</button>
+                  <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}><Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}</button>
                 </div>
               </div>
             </div>
@@ -966,13 +943,7 @@ function PartnersTab({ partners, onRefresh }: { partners: PartnerRow[]; onRefres
 
   const openAdd = () => { resetForm(); setMode('add'); };
   const openEdit = (p: PartnerRow) => {
-    setName(p.name);
-    setDescription(p.description);
-    setPublished(p.published);
-    setLogoPreview(p.logo_url);
-    setEditId(p.id);
-    setErr('');
-    setMode('edit');
+    setName(p.name); setDescription(p.description); setPublished(p.published); setLogoPreview(p.logo_url); setEditId(p.id); setErr(''); setMode('edit');
   };
 
   const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1003,9 +974,7 @@ function PartnersTab({ partners, onRefresh }: { partners: PartnerRow[]; onRefres
         const { error } = await supabase.from('partners').update(row).eq('id', editId);
         if (error) throw new Error(error.message);
       }
-      await onRefresh();
-      setMode('list');
-      resetForm();
+      await onRefresh(); setMode('list'); resetForm();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Erreur inconnue');
     } finally { setSaving(false); }
@@ -1015,8 +984,7 @@ function PartnersTab({ partners, onRefresh }: { partners: PartnerRow[]; onRefres
     if (!supabase) return;
     setDeleting(id);
     await supabase.from('partners').delete().eq('id', id);
-    await onRefresh();
-    setDeleting(null);
+    await onRefresh(); setDeleting(null);
   };
 
   if (mode === 'add' || mode === 'edit') {
@@ -1050,17 +1018,11 @@ function PartnersTab({ partners, onRefresh }: { partners: PartnerRow[]; onRefres
         <span className="crn-count">{partners.length} partenaire{partners.length > 1 ? 's' : ''}</span>
         <button className="btn-pink crn-add" onClick={openAdd}><Plus size={15} /> Ajouter</button>
       </div>
-      {partners.length === 0 && (
-        <div className="crn-empty"><Handshake size={40} /><p>Aucun partenaire.</p><span>Ajoutez votre premier partenaire.</span></div>
-      )}
+      {partners.length === 0 && <div className="crn-empty"><Handshake size={40} /><p>Aucun partenaire.</p><span>Ajoutez votre premier partenaire.</span></div>}
       <div className="crn-grid">
         {partners.map(p => (
           <div key={p.id} className="crn-card">
-            {p.logo_url ? (
-              <div className="crn-img-wrap"><img src={p.logo_url} alt={p.name} className="crn-img" style={{ objectFit: 'contain', padding: 12 }} /></div>
-            ) : (
-              <div className="crn-img crn-img-empty"><Handshake size={24} /></div>
-            )}
+            {p.logo_url ? <div className="crn-img-wrap"><img src={p.logo_url} alt={p.name} className="crn-img" style={{ objectFit: 'contain', padding: 12 }} /></div> : <div className="crn-img crn-img-empty"><Handshake size={24} /></div>}
             <div className="crn-card-body">
               <div className="crn-card-top"><h4>{p.name}</h4><span className="crn-pub">{p.published ? <Eye size={13} /> : <EyeOff size={13} />}</span></div>
               {p.description && <p className="crn-card-desc">{p.description}</p>}
