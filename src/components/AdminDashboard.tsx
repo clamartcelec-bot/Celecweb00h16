@@ -63,6 +63,11 @@ interface PhotoRow {
   published: boolean;
   created_at: string;
   images?: PhotoImage[];
+  raw_data?: Record<string, unknown> | null;
+  detected_brands?: string[] | null;
+  voice_transcript?: string | null;
+  ai_summary?: string | null;
+  source?: string | null;
 }
 
 interface PhotoImage {
@@ -132,7 +137,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
       supabase.from('requests').select('*').order('created_at', { ascending: false }),
       supabase.from('invoices').select('*').order('issued_at', { ascending: false }),
       supabase.from('exchanges').select('*').order('happened_at', { ascending: false }),
-      supabase.from('photos').select('*').order('created_at', { ascending: false }),
+      supabase.from('photos').select('*, raw_data, detected_brands, voice_transcript, ai_summary, source').order('created_at', { ascending: false }),
       supabase.from('photo_images').select('*').order('position', { ascending: true }),
       supabase.from('partners').select('*').order('position', { ascending: true }),
     ]);
@@ -481,8 +486,13 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
   const [allCities, setAllCities] = useState<FrenchCity[]>([]);
   const [citySuggestions, setCitySuggestions] = useState<FrenchCity[]>([]);
   const [showCityDropdown, setShowCityDropdown] = useState(false);
+  const [expandedDraft, setExpandedDraft] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState<string | null>(null);
   const cityInputRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const drafts = photos.filter(p => !p.published);
+  const published = photos.filter(p => p.published);
 
   useEffect(() => {
     if (!supabase) return;
@@ -602,7 +612,7 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
       let entryId = editId;
 
       if (mode === 'add') {
-        const { data, error } = await supabase.from('photos').insert({ ...row, image_url: '' }).select('id').single();
+        const { data, error } = await supabase.from('photos').insert({ ...row, image_url: '', source: 'manual' }).select('id').single();
         if (error) throw new Error(error.message);
         entryId = data.id;
       } else if (entryId) {
@@ -634,6 +644,24 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
     }
   };
 
+  const handlePublish = async (id: string) => {
+    if (!supabase) return;
+    setPublishing(id);
+    const { error } = await supabase.from('photos').update({ published: true }).eq('id', id);
+    if (error) { setErr(error.message); setPublishing(null); return; }
+    await onRefresh();
+    setPublishing(null);
+  };
+
+  const handleUnpublish = async (id: string) => {
+    if (!supabase) return;
+    setPublishing(id);
+    const { error } = await supabase.from('photos').update({ published: false }).eq('id', id);
+    if (error) { setErr(error.message); setPublishing(null); return; }
+    await onRefresh();
+    setPublishing(null);
+  };
+
   const handleDelete = async (id: string) => {
     if (!supabase) return;
     setDeleting(id);
@@ -656,7 +684,6 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
           <button className="crn-back" onClick={() => setMode('list')}>Annuler</button>
         </div>
 
-        {/* Images gallery */}
         <div className="crn-gallery">
           {allPreviews.map((p, idx) => (
             <div key={`${p.type}-${p.id}`} className="crn-gallery-item">
@@ -746,24 +773,140 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
   return (
     <>
       <div className="crn-head">
-        <span className="crn-count">{photos.length} billet{photos.length > 1 ? 's' : ''}</span>
+        <span className="crn-count">{photos.length} billet{photos.length > 1 ? 's' : ''} ({drafts.length} brouillon{drafts.length > 1 ? 's' : ''})</span>
         <button className="btn-pink crn-add" onClick={openAdd}>
           <Plus size={15} /> Ajouter
         </button>
       </div>
 
+      {err && <p className="adm-msg adm-err">{err}</p>}
+
+      {/* ── Drafts section ── */}
+      {drafts.length > 0 && (
+        <div className="crn-drafts-section">
+          <h3 className="crn-section-title">
+            <EyeOff size={15} /> Brouillons a valider ({drafts.length})
+          </h3>
+          <div className="crn-drafts-list">
+            {drafts.map(p => {
+              const thumbUrl = p.images?.[0]?.image_url || p.image_url;
+              const isExpanded = expandedDraft === p.id;
+              const brands = p.detected_brands || [];
+              const hasRawData = p.raw_data || p.voice_transcript || brands.length > 0;
+              return (
+                <div key={p.id} className="crn-draft-card">
+                  <div className="crn-draft-main" onClick={() => setExpandedDraft(isExpanded ? null : p.id)}>
+                    {thumbUrl ? (
+                      <img src={thumbUrl} alt={p.title} className="crn-draft-thumb" />
+                    ) : (
+                      <div className="crn-draft-thumb crn-draft-thumb-empty"><Camera size={20} /></div>
+                    )}
+                    <div className="crn-draft-info">
+                      <div className="crn-draft-top-row">
+                        <h4>{p.title}</h4>
+                        {p.source === 'telegram' && <span className="crn-badge-source">Telegram</span>}
+                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </div>
+                      {p.ai_summary && <p className="crn-draft-summary">{p.ai_summary}</p>}
+                      <div className="crn-draft-meta">
+                        {p.author && <span>{p.author}</span>}
+                        {p.city && <span><MapPin size={10} /> {p.city}</span>}
+                        <span>{fmtDate(p.created_at)}</span>
+                        {brands.length > 0 && (
+                          <span className="crn-brands-inline">{brands.join(', ')}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="crn-draft-expanded">
+                      {/* Description / AI summary */}
+                      {p.description && (
+                        <div className="crn-raw-block">
+                          <span className="crn-raw-label">Description (resume IA)</span>
+                          <p>{p.description}</p>
+                        </div>
+                      )}
+
+                      {/* Voice transcript */}
+                      {p.voice_transcript && (
+                        <div className="crn-raw-block">
+                          <span className="crn-raw-label">Transcription vocale</span>
+                          <p>{p.voice_transcript}</p>
+                        </div>
+                      )}
+
+                      {/* Detected brands */}
+                      {brands.length > 0 && (
+                        <div className="crn-raw-block">
+                          <span className="crn-raw-label">Marques detectees</span>
+                          <div className="crn-brands-tags">
+                            {brands.map((b, i) => <span key={i} className="crn-brand-tag">{b}</span>)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Raw data dump */}
+                      {hasRawData && p.raw_data && (
+                        <details className="crn-raw-details">
+                          <summary>Donnees brutes</summary>
+                          <pre className="crn-raw-json">{JSON.stringify(p.raw_data, null, 2)}</pre>
+                        </details>
+                      )}
+
+                      {/* Gallery of all images */}
+                      {(p.images?.length ?? 0) > 0 && (
+                        <div className="crn-draft-gallery">
+                          {p.images!.map(img => (
+                            <img key={img.id} src={img.image_url} alt="" className="crn-draft-gallery-img" />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="crn-draft-actions">
+                        <button className="crn-btn-publish" onClick={() => handlePublish(p.id)} disabled={publishing === p.id}>
+                          <Eye size={13} /> {publishing === p.id ? '...' : 'Publier'}
+                        </button>
+                        <button className="crn-btn-edit" onClick={() => openEdit(p)}>
+                          <Pencil size={13} /> Modifier
+                        </button>
+                        <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}>
+                          <Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Published section ── */}
+      {published.length > 0 && (
+        <div className="crn-published-section">
+          <h3 className="crn-section-title">
+            <Eye size={15} /> Publie ({published.length})
+          </h3>
+        </div>
+      )}
+
       {photos.length === 0 && (
         <div className="crn-empty">
           <ImageIcon size={40} />
           <p>Aucun billet dans le carnet.</p>
-          <span>Ajoutez votre premier billet pour commencer.</span>
+          <span>Ajoutez votre premier billet ou envoyez une photo par Telegram.</span>
         </div>
       )}
 
       <div className="crn-grid">
-        {photos.map(p => {
+        {published.map(p => {
           const imgCount = (p.images?.length ?? 0) + (p.image_url && !p.images?.length ? 1 : 0);
           const thumbUrl = p.images?.[0]?.image_url || p.image_url;
+          const brands = p.detected_brands || [];
           return (
             <div key={p.id} className="crn-card">
               {thumbUrl ? (
@@ -777,16 +920,22 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
               <div className="crn-card-body">
                 <div className="crn-card-top">
                   <h4>{p.title}</h4>
-                  <span className="crn-pub">{p.published ? <Eye size={13} /> : <EyeOff size={13} />}</span>
+                  {p.source === 'telegram' && <span className="crn-badge-source crn-badge-sm">TG</span>}
                 </div>
                 <div className="crn-card-meta">
                   {p.author && <span>{p.author}</span>}
                   {p.city && <span><MapPin size={10} /> {p.city}</span>}
                   <span>{fmtDate(p.created_at)}</span>
                 </div>
+                {brands.length > 0 && (
+                  <div className="crn-card-brands">{brands.join(', ')}</div>
+                )}
                 {p.description && <p className="crn-card-desc">{p.description}</p>}
                 <div className="crn-card-actions">
                   <button className="crn-btn-edit" onClick={() => openEdit(p)}><Pencil size={13} /> Modifier</button>
+                  <button className="crn-btn-unpublish" onClick={() => handleUnpublish(p.id)} disabled={publishing === p.id}>
+                    <EyeOff size={13} /> {publishing === p.id ? '...' : 'Depublier'}
+                  </button>
                   <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}>
                     <Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}
                   </button>
