@@ -685,9 +685,9 @@ function App() {
                   <>
                     <div className="settings-divider" />
                     <div className="settings-group">
-                      <button className="theme-option" onClick={() => { setAdminOpen(true); setSettingsOpen(false); }}>
+                      <button className="theme-option admin-option" onClick={() => { setAdminOpen(true); setSettingsOpen(false); }}>
                         <ShieldCheck size={16} />
-                        <span>Acc\u00e8s admin</span>
+                        <span>Admin</span>
                       </button>
                     </div>
                   </>
