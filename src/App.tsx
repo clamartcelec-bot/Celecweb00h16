@@ -39,7 +39,7 @@ import { AdminDashboard } from '@/components/AdminDashboard';
 import { ClientSpace } from '@/components/ClientSpace';
 
 type Lang = 'fr' | 'en' | 'es' | 'ar';
-type View = 'home' | 'carnet' | 'partners' | 'blocktech' | 'admin-login';
+type View = 'home' | 'carnet' | 'partners' | 'blocktech' | 'admin-login' | 'admin';
 type Theme = 'light' | 'dark';
 
 interface Photo {
@@ -424,7 +424,6 @@ function App() {
   const carnetSentinel = useRef<HTMLDivElement>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [adminOpen, setAdminOpen] = useState(false);
   const [clientSpaceOpen, setClientSpaceOpen] = useState(false);
   const t = copy[lang];
 
@@ -633,6 +632,7 @@ function App() {
 
   return (
     <div className="app">
+      {view !== 'admin' && (
       <header className="hdr">
         <button className="logo" onClick={() => go('home')}>CELEC<span className="logo-dot">.</span></button>
         <nav className={`nav ${menuOpen ? 'open' : ''}`}>
@@ -685,7 +685,7 @@ function App() {
                   <>
                     <div className="settings-divider" />
                     <div className="settings-group">
-                      <button className="theme-option admin-option" onClick={() => { setAdminOpen(true); setSettingsOpen(false); }}>
+                      <button className="theme-option admin-option" onClick={() => { go('admin'); setSettingsOpen(false); }}>
                         <ShieldCheck size={16} />
                         <span>Admin</span>
                       </button>
@@ -698,6 +698,7 @@ function App() {
           <button className="burger" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={22} /> : <Menu size={22} />}</button>
         </div>
       </header>
+      )}
 
       <main>
         {view === 'home' && (
@@ -1160,10 +1161,15 @@ function App() {
         )}
 
         {view === 'admin-login' && (
-          <AdminLogin t={t} onSuccess={() => { setAdminOpen(true); go('home'); }} />
+          <AdminLogin t={t} onSuccess={() => go('admin')} />
+        )}
+
+        {view === 'admin' && (
+          <AdminDashboard onClose={() => go('home')} />
         )}
       </main>
 
+      {view !== 'admin' && (
       <footer className="ftr">
         <div className="ftr-main"><strong>CELEC<span className="logo-dot">.</span></strong><p>{t.footer}</p></div>
         <div className="ftr-links">
@@ -1173,6 +1179,7 @@ function App() {
           <button className="admin-link" onClick={() => go('admin-login')}><Lock size={11} /> {t.admin}</button>
         </div>
       </footer>
+      )}
 
       {/* MODALS */}
       {callbackOpen && (
@@ -1183,18 +1190,16 @@ function App() {
         <LoginModal lang={lang} onClose={() => setLoginOpen(false)} onAuthed={() => {}} />
       )}
 
-      {adminOpen && (
-        <AdminDashboard onClose={() => setAdminOpen(false)} />
-      )}
-
       {clientSpaceOpen && (
         <ClientSpace onClose={() => setClientSpaceOpen(false)} onLogout={() => { setUserEmail(null); setUserRole(null); }} />
       )}
 
       {/* Floating contact button */}
+      {view !== 'admin' && (
       <button className="fab-contact" onClick={() => { go('home'); setTimeout(() => document.getElementById('contact-box')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>
         <Phone size={22} />
       </button>
+      )}
     </div>
   );
 }

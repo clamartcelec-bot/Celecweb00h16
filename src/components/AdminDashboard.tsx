@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MapPin, ArrowUpRight,
   Receipt, Search, Camera, Plus, Trash2,
   Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
-  Megaphone, Briefcase, FolderOpen, Settings
+  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -201,20 +201,20 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
   const draftCount = photos.filter(p => !p.published).length;
 
   return (
-    <div className="overlay admin-overlay" onClick={onClose}>
-      <div className="adm" onClick={e => e.stopPropagation()}>
-
-        <div className="adm-head">
-          <div className="adm-brand">
-            <ShieldCheck size={22} />
-            <div>
-              <h2>Espace CELEC</h2>
-              <span className="adm-sub">Administration</span>
-            </div>
+    <div className="adm-page">
+      <div className="adm-topbar">
+        <button className="adm-back" onClick={onClose}><ArrowLeft size={16} /> Retour au site</button>
+        <div className="adm-brand">
+          <ShieldCheck size={20} />
+          <div>
+            <h2>Espace CELEC</h2>
+            <span className="adm-sub">Administration</span>
           </div>
-          <button className="modal-x" onClick={onClose}><X size={18} /></button>
         </div>
+        <div className="adm-topbar-spacer" />
+      </div>
 
+      <div className="adm">
         {/* ── Mega-tabs (sections) ── */}
         <div className="adm-sections">
           {sections.map(s => {
