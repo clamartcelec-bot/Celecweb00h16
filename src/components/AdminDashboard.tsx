@@ -268,18 +268,14 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
           {/* ── COMMERCIAL: Apercu ── */}
           {!loading && subTab === 'overview' && (
             <>
-              <div className="adm-kpi-row">
+              <div className="adm-bento">
                 <KpiCard label="Clients" value={clientProfiles.length} color="#3b82f6" onClick={() => setSubTab('clients')} />
                 <KpiCard label="Demandes actives" value={activeRequests.length} color="#e8336a" onClick={() => setSubTab('requests')} />
                 <KpiCard label="Factures en attente" value={unpaidInvoices.length} color="#f59e0b" onClick={() => setSubTab('invoices')} />
                 <KpiCard label="CA encaisse" value={fmtAmount(totalRevenue)} color="#10b981" onClick={() => setSubTab('invoices')} />
-              </div>
-              <div className="adm-kpi-row" style={{ gridTemplateColumns: 'repeat(2,1fr)' }}>
-                <KpiCard label="Photos au carnet" value={photos.length} color="#0ea5e9" onClick={() => { setSection('communication'); setSubTab('carnet'); }} />
-                <KpiCard label="Brouillons" value={draftCount} color="#f59e0b" onClick={() => { setSection('communication'); setSubTab('carnet'); }} />
-              </div>
-              <div className="adm-recent-grid">
-                <div className="adm-recent">
+                <KpiCard label="Photos au carnet" value={photos.length} color="#0ea5e9" className="span-2" onClick={() => { setSection('communication'); setSubTab('carnet'); }} />
+                <KpiCard label="Brouillons" value={draftCount} color="#f59e0b" className="span-2" onClick={() => { setSection('communication'); setSubTab('carnet'); }} />
+                <div className="adm-recent span-2">
                   <h3>Dernieres demandes</h3>
                   {requests.slice(0, 5).map(r => (
                     <div key={r.id} className="adm-recent-item">
@@ -291,7 +287,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
                   ))}
                   {requests.length === 0 && <p className="adm-empty-sm">Aucune demande.</p>}
                 </div>
-                <div className="adm-recent">
+                <div className="adm-recent span-2">
                   <h3>Derniers billets</h3>
                   {photos.slice(0, 5).map(p => (
                     <div key={p.id} className="adm-recent-item">
@@ -382,7 +378,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
 
           {/* ── COMMERCIAL: Demandes ── */}
           {!loading && subTab === 'requests' && (
-            <div className="adm-list">
+            <div className="adm-grid-list">
               {requests.length === 0 && <p className="adm-msg">Aucune demande.</p>}
               {requests.map(r => {
                 const owner = profiles.find(p => p.id === r.user_id);
@@ -408,7 +404,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
 
           {/* ── COMMERCIAL: Factures ── */}
           {!loading && subTab === 'invoices' && (
-            <div className="adm-list">
+            <div className="adm-grid-list">
               <div className="adm-inv-summary">
                 <div className="adm-inv-stat">
                   <span className="adm-inv-n">{invoices.length}</span>
@@ -472,9 +468,9 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
   );
 }
 
-function KpiCard({ label, value, color, onClick }: { label: string; value: string | number; color: string; onClick: () => void }) {
+function KpiCard({ label, value, color, onClick, className }: { label: string; value: string | number; color: string; onClick: () => void; className?: string }) {
   return (
-    <button className="adm-kpi" onClick={onClick}>
+    <button className={`adm-kpi ${className ?? ''}`} onClick={onClick}>
       <span className="adm-kpi-val" style={{ color }}>{value}</span>
       <span className="adm-kpi-label">{label}</span>
       <ArrowUpRight size={14} className="adm-kpi-arrow" />
