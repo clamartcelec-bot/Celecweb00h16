@@ -11,11 +11,9 @@ import {
   Mic,
   MicOff,
   Paperclip,
-  Phone,
   PhoneOff,
   RotateCcw,
   Send,
-  UserRound,
   X,
 } from 'lucide-react';
 import { useRealtimeSession, type ToolCall, type TranscriptEvent } from '../hooks/useRealtimeSession';
@@ -70,7 +68,15 @@ const QUICK_PROMPTS: Array<{ label: string; prompt: string }> = [
   },
 ];
 
-const CALLBACK_PROMPT = 'Je préfère être rappelé plutôt que de continuer à parler. Bascule en mode rendez-vous.';
+const CALLBACK_PROMPT = 'Je préfère être rappelé plutôt que de continuer à parler. Prenons mes coordonnées.';
+
+function formatPhone(value: string) {
+  return value.replace(/\D/g, '').slice(0, 12).replace(/(\d{2})(?=\d)/g, '$1 ').trim();
+}
+
+function hasValidPhone(value: string) {
+  return value.replace(/\D/g, '').length >= 8;
+}
 
 function stringArg(args: Record<string, unknown>, key: string) {
   return typeof args[key] === 'string' ? args[key].trim() : undefined;
@@ -563,25 +569,30 @@ export function ConciergePage() {
   };
 
   const handleManualSubmit = async () => {
+    if (!isDraftSubmittable(draftRef.current)) {
+      setUploadError('Le nom, le téléphone et l’objet de l’appel sont nécessaires.');
+      return;
+    }
+
     try {
       await sendLead(appointmentMode ? 'concierge' : 'callback');
+      const name = draftRef.current.lastName.trim() || draftRef.current.firstName.trim();
+      sendUserText(
+        `Le client vient d’appuyer sur le bouton « Envoyer la demande » de la fiche de prise de rendez-vous. La demande de ${name} est déjà transmise à l’équipe CELEC. Confirme-le chaleuresement à l’oral et indique qu’un rappel lui sera proposé. Ne redemande aucune information et ne transmets pas une seconde fois.`,
+      );
     } catch {
-      // l'erreur est déjà reflétée dans l'état de transmission
+      // l’état de transmission reflète déjà l’échec à l’écran
     }
   };
 
   const inSession = status === 'connected' || status === 'ended';
   const showRequestPanel = appointmentMode || submissionState !== 'idle';
-  const hasFlow = cards.length > 0 || showRequestPanel;
-  const readyToSend = isDraftSubmittable(draft);
-
   const flow = useMemo(() => {
-    if (!cards.length) return null;
+    if (appointmentMode || !cards.length) return null;
     return (
       <div className="concierge-flow">
         <div className="concierge-flow-head">
           <span className="concierge-flow-label">Ce que je vous montre</span>
-          {appointmentMode && <span className="concierge-flow-focus">Mode rendez-vous</span>}
         </div>
         <div className="concierge-card-list">
           {cards.map((card, index) => (
@@ -614,7 +625,7 @@ export function ConciergePage() {
         <div className="concierge-header-spacer" />
       </header>
 
-      <main className={`concierge-main ${inSession && hasFlow ? 'concierge-main--flow' : ''}`}>
+      <main className={`concierge-main ${inSession && (showRequestPanel || cards.length > 0) ? 'concierge-main--flow' : ''}`}>
         {status === 'idle' && !settings.enabled && (
           <div className="concierge-idle">
             <div className="concierge-greeting">
@@ -636,7 +647,7 @@ export function ConciergePage() {
             <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
               <ActiveView
                 timer={timer}
-                compact={cards.length > 0}
+                compact={cards.length > 0 || appointmentMode}
                 isMuted={isMuted}
                 isUserSpeaking={isUserSpeaking}
                 isAssistantSpeaking={isAssistantSpeaking}
@@ -653,7 +664,6 @@ export function ConciergePage() {
                 <RequestPanel
                   draft={draft}
                   submissionState={submissionState}
-                  readyToSend={readyToSend}
                   uploading={uploading}
                   uploadError={uploadError}
                   onFilePick={handleFilePick}
@@ -676,7 +686,6 @@ export function ConciergePage() {
                 <RequestPanel
                   draft={draft}
                   submissionState={submissionState}
-                  readyToSend={readyToSend}
                   uploading={uploading}
                   uploadError={uploadError}
                   onFilePick={handleFilePick}
@@ -886,7 +895,6 @@ function AudioBars({ label, variant, active }: { label: string; variant: 'user' 
 interface RequestPanelProps {
   draft: ConciergeDraft;
   submissionState: 'idle' | 'sending' | 'sent' | 'error';
-  readyToSend: boolean;
   uploading: boolean;
   uploadError: string | null;
   onFilePick: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -897,7 +905,6 @@ interface RequestPanelProps {
 function RequestPanel({
   draft,
   submissionState,
-  readyToSend,
   uploading,
   uploadError,
   onFilePick,
@@ -905,23 +912,46 @@ function RequestPanel({
   onSubmit,
 }: RequestPanelProps) {
   const sent = submissionState === 'sent';
+  const sending = submissionState === 'sending';
+  const name = draft.lastName.trim() || draft.firstName.trim();
+  const phone = formatPhone(draft.phone);
+  const phoneOk = hasValidPhone(draft.phone);
+  const objective = draft.summary.trim();
+  const readyToSend = Boolean(name) && phoneOk && Boolean(objective);
 
   return (
     <aside className="concierge-request-panel" aria-live="polite">
       <div className="concierge-panel-title">
         <ClipboardList size={18} />
         <span>Prise de rendez-vous</span>
+        {sent && <span className="concierge-submit-status concierge-submit-status--sent">Transmise</span>}
       </div>
 
-      <PanelLine icon={<UserRound size={15} />} label="Nom" value={draft.lastName} />
-      <PanelLine icon={<UserRound size={15} />} label="Prénom" value={draft.firstName} />
-      <PanelLine icon={<Phone size={15} />} label="Téléphone" value={draft.phone} />
-      <PanelLine icon={<MapPin size={15} />} label="Lieu" value={draft.location} />
+      <div className="concierge-field">
+        <span className="concierge-field-label">Nom</span>
+        <span className={`concierge-field-value ${name ? 'concierge-field-value--ok' : 'concierge-field-value--missing'}`}>
+          {name || 'À préciser'}
+        </span>
+      </div>
+
+      <div className="concierge-field">
+        <span className="concierge-field-label">Téléphone</span>
+        <span className={`concierge-field-value concierge-field-value--spaced ${phoneOk ? 'concierge-field-value--ok' : 'concierge-field-value--missing'}`}>
+          {phone || 'À préciser'}
+        </span>
+      </div>
+
+      <div className="concierge-field">
+        <span className="concierge-field-label">Adresse</span>
+        <span className={`concierge-field-value ${draft.location ? 'concierge-field-value--ok' : ''}`}>
+          {draft.location || 'Facultatif'}
+        </span>
+      </div>
 
       {draft.category && (
-        <PanelLine icon={<ClipboardList size={15} />} label="Objet" value={CATEGORY_LABELS[draft.category]} />
+        <PanelLine icon={<ClipboardList size={15} />} label="Type" value={CATEGORY_LABELS[draft.category]} />
       )}
-      {draft.siteType && <PanelLine icon={<ClipboardList size={15} />} label="Type de site" value={draft.siteType} />}
+      {draft.siteType && <PanelLine icon={<MapPin size={15} />} label="Site" value={draft.siteType} />}
       {draft.urgency && (
         <PanelLine icon={<AlertTriangle size={15} />} label="Priorité" value={URGENCY_LABELS[draft.urgency]} />
       )}
@@ -930,8 +960,12 @@ function RequestPanel({
       )}
 
       <div className="concierge-panel-objective">
-        <span className="concierge-panel-objective-label">Objet de l’appel</span>
-        <p>{draft.summary || 'À préciser pendant l’échange.'}</p>
+        <span className={`concierge-panel-objective-label ${objective ? 'concierge-panel-objective-label--ok' : 'concierge-panel-objective-label--missing'}`}>
+          Objet de l’appel
+        </span>
+        <p className={objective ? '' : 'concierge-panel-objective-empty'}>
+          {objective || 'À préciser pendant l’échange.'}
+        </p>
       </div>
 
       <div className="concierge-panel-files">
@@ -972,15 +1006,15 @@ function RequestPanel({
 
       <button
         onClick={onSubmit}
-        disabled={!readyToSend || sent || submissionState === 'sending'}
+        disabled={sent || sending}
         className={`concierge-submit-btn ${readyToSend ? 'concierge-submit-btn--ready' : ''} ${sent ? 'concierge-submit-btn--sent' : ''}`}
       >
-        {submissionState === 'sending' && <Loader2 size={16} className="concierge-spin" />}
+        {sending && <Loader2 size={16} className="concierge-spin" />}
         {sent && <CheckCircle2 size={16} />}
-        {sent ? 'Demande transmise' : submissionState === 'sending' ? 'Envoi…' : 'Envoyer la demande'}
+        {sent ? 'Demande transmise' : sending ? 'Envoi…' : 'Envoyer la demande'}
       </button>
 
-      {!readyToSend && (
+      {!readyToSend && !sent && (
         <p className="concierge-panel-hint">
           Le nom, le téléphone et l’objet de l’appel sont nécessaires pour envoyer la demande.
         </p>

@@ -496,6 +496,54 @@
   color: #999;
 }
 
+.concierge-field {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 2px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.concierge-field-label {
+  font-size: 12px;
+  color: #888;
+}
+
+.concierge-field-value {
+  font-size: 14px;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.concierge-field-value--spaced {
+  letter-spacing: 0.14em;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 13.5px;
+}
+
+.concierge-field-value--missing {
+  color: #dc2626;
+}
+
+.concierge-field-value--ok {
+  color: #16a34a;
+}
+
+.concierge-panel-objective-label--missing {
+  color: #dc2626;
+}
+
+.concierge-panel-objective-label--ok {
+  color: #16a34a;
+}
+
+.concierge-panel-objective-empty {
+  color: #b91c1c !important;
+  background: #fff5f4 !important;
+}
+
 .concierge-panel-objective p {
   margin: 0;
   padding: 11px 13px;

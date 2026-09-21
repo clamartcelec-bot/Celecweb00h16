@@ -56,8 +56,9 @@ export const URGENCY_LABELS: Record<RequestUrgency, string> = {
 };
 
 export function isDraftSubmittable(draft: ConciergeDraft) {
+  const name = draft.lastName.trim() || draft.firstName.trim();
   const phoneDigits = draft.phone.replace(/\D/g, '');
-  return Boolean(draft.firstName.trim()) && phoneDigits.length >= 8 && Boolean(draft.summary.trim());
+  return Boolean(name) && phoneDigits.length >= 8 && Boolean(draft.summary.trim());
 }
 
 export interface ConciergeMessage {

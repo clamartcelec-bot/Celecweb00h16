@@ -18,6 +18,7 @@ interface NotifyBody {
   source?: string;
   user_email?: string;
   guest_phone?: string;
+  guest_name?: string;
 }
 
 function clean(value: unknown, maxLength: number): string {
@@ -38,6 +39,7 @@ Deno.serve(async (req: Request) => {
     const category = allowedCategories.has(requestedCategory) ? requestedCategory : "question";
     const description = clean(body.description, 1_600);
     const guestPhone = clean(body.guest_phone, 40);
+    const guestName = clean(body.guest_name, 80);
     const userEmail = clean(body.user_email, 200);
     const source = clean(body.source, 40);
     const requestedContactPreference = clean(body.contact_preference, 20);
@@ -71,6 +73,7 @@ Deno.serve(async (req: Request) => {
         callback_requested: body.callback_requested === true,
         status: "new",
         guest_phone: guestPhone || null,
+        first_name: guestName || null,
       })
       .select("id")
       .single();
@@ -103,6 +106,7 @@ Deno.serve(async (req: Request) => {
     if (source === "callback") lines.push("Rappel demande");
     if (source === "concierge") lines.push("Source: Concierge vocal");
     if (userEmail) lines.push("Compte: " + userEmail);
+    if (guestName) lines.push("Nom: " + guestName);
     if (guestPhone) lines.push("Tel invite: " + guestPhone);
     lines.push(
       "Heure: " +

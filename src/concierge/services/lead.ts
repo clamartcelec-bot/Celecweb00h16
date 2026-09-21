@@ -13,8 +13,10 @@ function clean(value: string, maxLength: number) {
 }
 
 export function buildLeadDescription(draft: ConciergeDraft) {
+  const name = clean(draft.lastName.trim() || draft.firstName, 80);
   const lines: string[] = [];
-  if (draft.summary.trim()) lines.push(`Objet : ${clean(draft.summary, 400)}`);
+  if (name) lines.push(`Nom : ${name}`);
+  if (draft.summary.trim()) lines.push(`Objet de l’appel : ${clean(draft.summary, 400)}`);
 
   const details: string[] = [];
   if (draft.siteType.trim()) details.push(`Type de site : ${clean(draft.siteType, 160)}`);
@@ -42,12 +44,12 @@ export async function submitConciergeLead(
     throw new Error('La transmission CELEC n’est pas configurée.');
   }
 
-  const firstName = clean(draft.firstName, 80);
+  const name = clean(draft.lastName.trim() || draft.firstName, 80);
   const phone = clean(draft.phone, 40);
   const phoneDigits = phone.replace(/\D/g, '');
 
-  if (!firstName || phoneDigits.length < 8) {
-    throw new Error('Le prénom et un numéro de téléphone valide sont nécessaires.');
+  if (!name || phoneDigits.length < 8) {
+    throw new Error('Le nom et un numéro de téléphone valide sont nécessaires.');
   }
 
   const response = await fetch(`${supabaseUrl}/functions/v1/telegram-notify`, {
@@ -64,6 +66,7 @@ export async function submitConciergeLead(
       callback_requested: draft.callbackRequested,
       source,
       guest_phone: phone,
+      guest_name: name,
     }),
   });
 
