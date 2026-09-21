@@ -11,6 +11,7 @@ import {
   Mic,
   MicOff,
   Paperclip,
+  Phone,
   PhoneOff,
   RotateCcw,
   Send,
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useRealtimeSession, type ToolCall, type TranscriptEvent } from '../hooks/useRealtimeSession';
 import { useConversationTimer } from '../hooks/useConversationTimer';
-import { formatConciergeContext, loadConciergeContext, type ConciergeContext } from '../services/context';
+import { formatConciergeContext, formatConciergeResume, loadConciergeContext, type ConciergeContext } from '../services/context';
 import {
   EMPTY_KNOWLEDGE,
   findBrand,
@@ -146,6 +147,7 @@ export function ConciergePage() {
   const sessionIdRef = useRef<string | null>(null);
   const shownCardIdsRef = useRef<Set<string>>(new Set());
   const transcriptRef = useRef<ConciergeMessage[]>([]);
+  const isResumingRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -479,7 +481,18 @@ export function ConciergePage() {
     if (hasStartedGreetingRef.current || !knowledgeReady) return;
 
     hasStartedGreetingRef.current = true;
-    injectSystemMessage(formatConciergeContext(clientContext, selectedTopicRef.current));
+
+    if (isResumingRef.current) {
+      isResumingRef.current = false;
+      injectSystemMessage(formatConciergeResume(
+        clientContext,
+        draftRef.current,
+        transcriptRef.current.map((message) => `${message.role === 'user' ? 'Client' : 'CELEC'} : ${message.text}`),
+      ));
+    } else {
+      injectSystemMessage(formatConciergeContext(clientContext, selectedTopicRef.current));
+    }
+
     requestResponse();
   }, [clientContext, injectSystemMessage, knowledgeReady, requestResponse, status]);
 
@@ -493,6 +506,7 @@ export function ConciergePage() {
   }, [injectSystemMessage]);
 
   const handleEnd = useCallback(() => {
+    isResumingRef.current = false;
     stop();
     endConciergeSession(sessionIdRef.current);
   }, [stop]);
@@ -506,6 +520,7 @@ export function ConciergePage() {
 
   const handleStart = (topic?: { label: string; category: RequestCategory }) => {
     selectedTopicRef.current = topic?.label;
+    isResumingRef.current = false;
     hasSubmittedRef.current = false;
     setSubmissionState('idle');
     setCards([]);
@@ -531,6 +546,12 @@ export function ConciergePage() {
   const handleGoBack = () => {
     handleEnd();
     window.location.href = '/';
+  };
+
+  const handleResume = () => {
+    hasSubmittedRef.current = submissionState === 'sent';
+    isResumingRef.current = true;
+    start();
   };
 
   const handleSendMessage = (text: string) => {
@@ -681,7 +702,7 @@ export function ConciergePage() {
         {status === 'ended' && (
           <>
             <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
-              <EndedView draft={draft} onRestart={() => handleStart()} onBack={handleGoBack} />
+              <EndedView draft={draft} onRestart={() => handleStart()} onResume={handleResume} onBack={handleGoBack} />
               {showRequestPanel && (
                 <RequestPanel
                   draft={draft}
@@ -1049,7 +1070,7 @@ function ErrorView({ error, onRetry }: { error: string | null; onRetry: () => vo
   );
 }
 
-function EndedView({ draft, onRestart, onBack }: { draft: ConciergeDraft; onRestart: () => void; onBack: () => void }) {
+function EndedView({ draft, onRestart, onResume, onBack }: { draft: ConciergeDraft; onRestart: () => void; onResume: () => void; onBack: () => void }) {
   return (
     <div className="concierge-ended">
       <h2>Merci pour votre appel.</h2>
@@ -1059,7 +1080,11 @@ function EndedView({ draft, onRestart, onBack }: { draft: ConciergeDraft; onRest
           : "L'équipe CELEC reste disponible si vous souhaitez préciser votre demande."}
       </p>
       <div className="concierge-ended-actions">
-        <button onClick={onRestart} className="concierge-restart-btn">
+        <button onClick={onResume} className="concierge-restart-btn">
+          <Phone size={18} />
+          Reprendre l’appel
+        </button>
+        <button onClick={onRestart} className="concierge-retry-btn">
           <RotateCcw size={18} />
           Nouvel appel
         </button>

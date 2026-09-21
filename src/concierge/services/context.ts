@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { formatConciergeKnowledge, type ConciergeKnowledge } from './knowledge';
+import type { ConciergeDraft } from '../types';
 
 export interface ConciergeContext {
   firstName?: string;
@@ -63,6 +64,44 @@ export function formatConciergeContext(context: ConciergeContext | null, topic?:
     lines.push('', formatConciergeKnowledge(context.knowledge));
   }
 
-  lines.push('Accueille maintenant le client en une phrase et demande comment tu peux l’aider.');
+  lines.push(
+    'Prends la parole en premier, sans attendre que le client parle, en deux ou trois phrases :',
+    '- « Bonjour, je suis le concierge IA de CELEC. Que puis-je faire pour vous ? »',
+    '- « Si vous avez besoin d’une prise de rendez-vous ou de renseignements sur notre société d’électricité, je suis là pour ça. »',
+    'Termine en posant une question ouverte pour laisser le client enchaîner.',
+  );
+  return lines.join('\n');
+}
+
+export function formatConciergeResume(
+  context: ConciergeContext | null,
+  draft: ConciergeDraft,
+  history: string[],
+) {
+  const name = draft.lastName.trim() || draft.firstName.trim();
+  const lines = [
+    'CONTEXTE INTERNE POUR LA REPRISE DE L’APPEL :',
+    'Vous venez de raccrocher avec ce client. Il revient sur la même conversation : tu la reprends là où elle s’était arrêtée, sans redemander ce qui est déjà connu.',
+  ];
+
+  if (name) lines.push(`Nom du client : ${name}.`);
+  if (draft.phone.trim()) lines.push(`Téléphone connu : ${draft.phone.trim()}.`);
+  if (draft.location.trim()) lines.push(`Adresse connue : ${compact(draft.location, 200)}.`);
+  if (draft.summary.trim()) lines.push(`Objet de l’appel : ${compact(draft.summary, 400)}.`);
+  if (draft.attachments.length) lines.push(`Pièces jointes déjà ajoutées : ${draft.attachments.length}.`);
+
+  if (history.length) {
+    lines.push('', 'Échanges précédents, du plus ancien au plus récent :');
+    history.slice(-12).forEach((line) => lines.push(`- ${compact(line, 300)}`));
+  }
+
+  if (context?.knowledge) {
+    lines.push('', formatConciergeKnowledge(context.knowledge));
+  }
+
+  lines.push(
+    'Reprends la parole en premier en une phrase chaleureuse qui montre que tu gardes le fil — par exemple : « Nous reprenons où nous en étions. »',
+    'Ne redemande aucune information déjà présente ci-dessus et n’énumère pas l’historique au client.',
+  );
   return lines.join('\n');
 }

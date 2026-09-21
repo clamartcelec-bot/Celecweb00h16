@@ -32,6 +32,18 @@ export function useRealtimeSession(conversationId: string | null) {
   const sessionRef = useRef<WebRTCSession | null>(null);
   const toolCallHandlerRef = useRef<((tool: ToolCall) => void) | null>(null);
   const transcriptHandlerRef = useRef<((event: TranscriptEvent) => void) | null>(null);
+  const responseTimerRef = useRef<number | null>(null);
+
+  const scheduleResponse = useCallback(() => {
+    if (responseTimerRef.current) window.clearTimeout(responseTimerRef.current);
+    responseTimerRef.current = window.setTimeout(() => {
+      responseTimerRef.current = null;
+      const session = sessionRef.current;
+      if (session) {
+        sendDataChannelEvent(session.dc, { type: 'response.create' });
+      }
+    }, 180);
+  }, []);
   const pendingArgsRef = useRef<Map<string, string>>(new Map());
   const processedCallsRef = useRef<Set<string>>(new Set());
 
@@ -119,6 +131,10 @@ export function useRealtimeSession(conversationId: string | null) {
   const start = useCallback(async () => {
     closeSession(sessionRef.current);
     sessionRef.current = null;
+    if (responseTimerRef.current) {
+      window.clearTimeout(responseTimerRef.current);
+      responseTimerRef.current = null;
+    }
     pendingArgsRef.current.clear();
     processedCallsRef.current.clear();
     setError(null);
@@ -162,6 +178,10 @@ export function useRealtimeSession(conversationId: string | null) {
   const stop = useCallback(() => {
     closeSession(sessionRef.current);
     sessionRef.current = null;
+    if (responseTimerRef.current) {
+      window.clearTimeout(responseTimerRef.current);
+      responseTimerRef.current = null;
+    }
     setIsUserSpeaking(false);
     setIsAssistantSpeaking(false);
     setStatus('ended');
@@ -177,10 +197,8 @@ export function useRealtimeSession(conversationId: string | null) {
         output: JSON.stringify(result),
       },
     });
-    sendDataChannelEvent(sessionRef.current.dc, {
-      type: 'response.create',
-    });
-  }, []);
+    scheduleResponse();
+  }, [scheduleResponse]);
 
   const onToolCall = useCallback((handler: ((tool: ToolCall) => void) | null) => {
     toolCallHandlerRef.current = handler;
