@@ -87,15 +87,28 @@ interface CarnetSettings {
   activity_context: string;
   detect_brands: boolean;
   auto_transcribe: boolean;
+  minimax_api_key: string;
+  minimax_base_url: string;
+  batch_window_seconds: number;
   updated_at: string;
 }
+
+const modelPresets: { value: string; label: string }[] = [
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (rapide)' },
+  { value: 'gpt-4o', label: 'GPT-4o (precis)' },
+  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+  { value: 'MiniMax-M3', label: 'MiniMax M3 (multimodal)' },
+  { value: 'MiniMax-Text-01', label: 'MiniMax Text-01' },
+];
+
+const isMiniMaxModel = (model: string) => /^minimax/i.test(model.trim());
 
 interface AdminDashboardProps {
   onClose: () => void;
 }
 
 type Section = 'communication' | 'commercial' | 'administratif';
-type SubTab = 'carnet' | 'partners' | 'ai_settings' | 'overview' | 'clients' | 'requests' | 'invoices' | 'admin_docs';
+type SubTab = 'carnet' | 'partners' | 'overview' | 'clients' | 'requests' | 'invoices' | 'admin_docs';
 
 const statusLabel: Record<string, string> = {
   new: 'Nouveau', to_call: 'A rappeler', in_progress: 'En cours',
@@ -116,7 +129,6 @@ const sectionSubTabs: Record<Section, { key: SubTab; label: string; icon: typeof
   communication: [
     { key: 'carnet', label: 'Carnet', icon: Camera },
     { key: 'partners', label: 'Partenaires', icon: Handshake },
-    { key: 'ai_settings', label: 'Reglages IA', icon: Settings },
   ],
   commercial: [
     { key: 'overview', label: 'Apercu', icon: LayoutDashboard },
@@ -448,11 +460,6 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
             <PartnersTab partners={partnersList} onRefresh={loadData} />
           )}
 
-          {/* ── COMMUNICATION: Reglages IA ── */}
-          {!loading && subTab === 'ai_settings' && (
-            <CarnetSettingsTab />
-          )}
-
           {/* ── ADMINISTRATIF ── */}
           {!loading && subTab === 'admin_docs' && (
             <div className="adm-placeholder">
@@ -508,6 +515,9 @@ function CarnetSettingsTab() {
       activity_context: settings.activity_context,
       detect_brands: settings.detect_brands,
       auto_transcribe: settings.auto_transcribe,
+      minimax_api_key: settings.minimax_api_key,
+      minimax_base_url: settings.minimax_base_url,
+      batch_window_seconds: Number(settings.batch_window_seconds) || 120,
       updated_at: new Date().toISOString(),
     }).eq('id', 1);
     if (error) { setErr(error.message); setSaving(false); return; }
@@ -516,7 +526,7 @@ function CarnetSettingsTab() {
     setTimeout(() => setMsg(''), 3000);
   };
 
-  if (loading) return <p className="adm-msg">Chargement des parametres...</p>;
+  if (loading) return <p className="adm-msg ai-inline-load">Chargement des parametres...</p>;
   if (!settings) return <p className="adm-msg adm-err">Impossible de charger les parametres. {err}</p>;
 
   return (
@@ -525,7 +535,7 @@ function CarnetSettingsTab() {
         <Settings size={18} />
         <div>
           <h3>Reglages de l'intelligence artificielle</h3>
-          <p className="ai-settings-sub">Ces parametres controlent comment l'IA analyse les photos et messages envoyes par Telegram.</p>
+          <p className="ai-settings-sub">Ces parametres controlent comment l'IA analyse les photos et messages envoyes par Telegram, ainsi que le regroupement des envois en plusieurs messages.</p>
         </div>
       </div>
 
@@ -565,18 +575,73 @@ function CarnetSettingsTab() {
             </select>
           </label>
           <label>
-            <span>Modele IA</span>
+            <span>Regroupement des envois Telegram</span>
             <select
               className="field"
-              value={settings.ai_model}
-              onChange={e => setSettings({ ...settings, ai_model: e.target.value })}
-            >
-              <option value="gpt-4o-mini">GPT-4o Mini (rapide)</option>
-              <option value="gpt-4o">GPT-4o (precis)</option>
-              <option value="gpt-4-turbo">GPT-4 Turbo</option>
+              value={String(settings.batch_window_seconds)}
+              onChange={e => setSettings({ ...settings, batch_window_seconds: Number(e.target.value) })}>
+              <option value="30">30 secondes</option>
+              <option value="60">1 minute</option>
+              <option value="120">2 minutes</option>
+              <option value="300">5 minutes</option>
             </select>
           </label>
         </div>
+
+        <label>
+          <span>Modele IA</span>
+          <select
+            className="field"
+            value={modelPresets.some(m => m.value === settings.ai_model) ? settings.ai_model : '__custom__'}
+            onChange={e => setSettings({ ...settings, ai_model: e.target.value === '__custom__' ? '' : e.target.value })}
+          >
+            {modelPresets.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            <option value="__custom__">Autre modele (saisie libre)</option>
+          </select>
+        </label>
+        {!modelPresets.some(m => m.value === settings.ai_model) && (
+          <label>
+            <span>Nom du modele</span>
+            <input
+              className="field"
+              placeholder="Ex: MiniMax-M3"
+              value={settings.ai_model}
+              onChange={e => setSettings({ ...settings, ai_model: e.target.value })}
+            />
+          </label>
+        )}
+        <p className="ai-settings-note">
+          Les modeles dont le nom commence par MiniMax passent par le fournisseur MiniMax,
+          tous les autres par OpenAI.
+        </p>
+
+        {isMiniMaxModel(settings.ai_model) && (
+          <div className="ai-provider-box">
+            <span className="ai-provider-title">Connexion MiniMax</span>
+            <label>
+              <span>Cle API MiniMax</span>
+              <input
+                className="field"
+                type="password"
+                placeholder="Collez votre cle MiniMax"
+                value={settings.minimax_api_key}
+                onChange={e => setSettings({ ...settings, minimax_api_key: e.target.value })}
+              />
+            </label>
+            <label>
+              <span>Adresse du service</span>
+              <input
+                className="field"
+                value={settings.minimax_base_url}
+                onChange={e => setSettings({ ...settings, minimax_base_url: e.target.value })}
+              />
+            </label>
+            <p className="ai-settings-note">
+              Si une cle MiniMax est deja configuree cote serveur, elle est utilisee en priorite
+              et ce champ peut rester vide.
+            </p>
+          </div>
+        )}
 
         <div className="ai-toggles">
           <label className="crn-check">
@@ -630,7 +695,7 @@ interface PhotoForm {
 const emptyForm: PhotoForm = { title: '', author: '', city: '', cityLat: 0, cityLng: 0, description: '', published: true, date: new Date().toISOString().slice(0, 10) };
 
 function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () => Promise<void> }) {
-  const [mode, setMode] = useState<'list' | 'add' | 'edit'>('list');
+  const [mode, setMode] = useState<'list' | 'add' | 'edit' | 'settings'>('list');
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<PhotoForm>(emptyForm);
   const [files, setFiles] = useState<File[]>([]);
@@ -781,6 +846,18 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
     await onRefresh(); setDeleting(null);
   };
 
+  if (mode === 'settings') {
+    return (
+      <div className="crn-form">
+        <div className="crn-form-head">
+          <h3>Reglages du carnet</h3>
+          <button className="crn-back" onClick={() => setMode('list')}>Retour au carnet</button>
+        </div>
+        <CarnetSettingsTab />
+      </div>
+    );
+  }
+
   if (mode === 'add' || mode === 'edit') {
     const allPreviews = [
       ...existingImages.map(i => ({ type: 'existing' as const, url: i.image_url, id: i.id })),
@@ -842,7 +919,10 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
     <>
       <div className="crn-head">
         <span className="crn-count">{photos.length} billet{photos.length > 1 ? 's' : ''} ({drafts.length} brouillon{drafts.length > 1 ? 's' : ''})</span>
-        <button className="btn-pink crn-add" onClick={openAdd}><Plus size={15} /> Ajouter</button>
+        <div className="crn-head-actions">
+          <button className="crn-settings-btn" onClick={() => setMode('settings')}><Settings size={14} /> Reglages</button>
+          <button className="btn-pink crn-add" onClick={openAdd}><Plus size={15} /> Ajouter</button>
+        </div>
       </div>
       {err && <p className="adm-msg adm-err">{err}</p>}
       {drafts.length > 0 && (
