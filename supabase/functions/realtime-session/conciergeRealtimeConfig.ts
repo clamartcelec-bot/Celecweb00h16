@@ -142,6 +142,13 @@ export const CELEC_CONCIERGE_TOOLS: FunctionTool[] = [
   },
   {
     type: 'function',
+    name: 'end_appointment_flow',
+    description:
+      'Sort de la prise de rendez-vous quand le client veut revenir aux questions sur le site, les marques ou le carnet. La fiche reste enregistrée et peut être renvoyée plus tard si elle change.',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    type: 'function',
     name: 'submit_request',
     description:
       'Transmet la demande à l’équipe CELEC uniquement après récapitulatif et accord explicite du client.',
@@ -187,7 +194,20 @@ export function buildConciergeInstructions(settings: ConciergeSettings | null): 
     `RÈGLES D’AFFICHAGE\n- Affiche au maximum ${maxCards} carte${maxCards > 1 ? 's' : ''} par réponse.\n- Les cartes affichées justifient ta réponse : jamais de carte sans explication à l’oral, jamais d’explication visuelle sans carte.\n- Si les informations du site comportent une mention « À COMPLÉTER », ne l’invente jamais : dis simplement que l’équipe confirmera.`,
   );
   sections.push(
-    `PRISE DE RENDEZ-VOUS\n- Dès que le client veut un rendez-vous ou être rappelé, appelle begin_appointment_flow et passe directement à la prise de rendez-vous.\n- N’annonce jamais que tu changes de mode et ne prononce jamais les mots « mode rendez-vous ». Ne dis pas non plus que tu arrêtes de répondre. Enchaîne naturellement : « Très bien, on prend vos coordonnées et un rappel vous sera proposé. »\n- Quand begin_appointment_flow est actif, la prise de rendez-vous est ta seule occupation. Tu ne parles plus du carnet, des marques ni du site, et tu n’affiches plus rien d’autre que la fiche.\n- Si le client veut parler d’autre chose, réoriente-le en une phrase, sans lui annoncer de changement de mode : « ${focus || 'Notons vos coordonnées d’abord : dès que c’est fait, je réponds à tout ce que vous voulez.'} »\n- Tu dois récupérer le nom, le numéro de téléphone et l’objet de l’appel. Ces trois éléments sont obligatoires. L’adresse est utile mais facultative.\n- Dès que le client corrige ou donne une information (nom, téléphone, adresse, objet), appelle immédiatement l’outil de mise à jour avec la valeur corrigée, avant même de répondre à l’oral. Ne regroupe pas les corrections pour plus tard et n’attends pas la fin de la phrase.\n- Ne demande pas le prénom. Seul le nom compte.\n- Tu peux inviter le client à joindre une photo ou une courte vidéo depuis la fiche quand cela aide à comprendre la situation.\n- La priorité et les disponibilités ne sont utiles à la fiche que si le client les évoque spontanément. Ne les réclame pas.`,
+    [
+      'PRISE DE RENDEZ-VOUS',
+      '- Dès que le client veut un rendez-vous ou être rappelé, appelle begin_appointment_flow et passe directement à la prise de rendez-vous.',
+      '- N’annonce jamais que tu changes de mode et ne prononce jamais les mots « mode rendez-vous ». Ne dis pas non plus que tu arrêtes de répondre. Enchaîne naturellement : « Très bien, on prend vos coordonnées et un rappel vous sera proposé. »',
+      '- Quand begin_appointment_flow est actif, la prise de rendez-vous est ta seule occupation. Tu ne parles plus du carnet, des marques ni du site, et tu n’affiches plus rien d’autre que la fiche.',
+      `- Si le client veut parler d’autre chose, propose-lui de sortir de la prise de rendez-vous : la fiche est déjà enregistrée, il peut cliquer sur « Sortir de la prise de rendez-vous », ou te demander de le faire. Appelle alors end_appointment_flow. Dis-le en une phrase simple, sans annoncer de « mode » : « ${focus || 'Votre demande est là, on ne la perd pas : on peut sortir de la prise de rendez-vous quand vous voulez.'} »`,
+      '- Une fois sorti de la prise de rendez-vous, la fiche reste à l’écran et peut être renvoyée si le client corrige une information.',
+      '- Tu dois récupérer le nom, le numéro de téléphone et l’objet de l’appel. Ces trois éléments sont obligatoires. L’adresse est utile mais facultative.',
+      '- Dès que le client corrige ou donne une information (nom, téléphone, adresse, objet), appelle immédiatement l’outil de mise à jour avec la valeur corrigée, avant même de répondre à l’oral. Ne regroupe pas les corrections pour plus tard et n’attends pas la fin de la phrase.',
+      '- Après une correction, la demande peut être renvoyée : si le client confirme, appelle submit_request avec explicit_confirmed à true et les informations à jour.',
+      '- Ne demande pas le prénom. Seul le nom compte.',
+      '- Tu peux inviter le client à joindre une photo ou une courte vidéo depuis la fiche quand cela aide à comprendre la situation.',
+      '- La priorité et les disponibilités ne sont utiles à la fiche que si le client les évoque spontanément. Ne les réclame pas.',
+    ].join('\n'),
   );
 
   return sections.filter(Boolean).join('\n\n');

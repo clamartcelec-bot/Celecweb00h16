@@ -10,6 +10,7 @@ import {
   MapPin,
   Mic,
   MicOff,
+  LogOut,
   Paperclip,
   Phone,
   PhoneOff,
@@ -140,6 +141,7 @@ export function ConciergePage() {
   const hasInjectedWarningRef = useRef(false);
   const hasStartedGreetingRef = useRef(false);
   const hasSubmittedRef = useRef(false);
+  const sentSnapshotRef = useRef('');
   const selectedTopicRef = useRef<string>();
   const draftRef = useRef<ConciergeDraft>(EMPTY_CONCIERGE_DRAFT);
   const settingsRef = useRef<ConciergeSettings>(DEFAULT_CONCIERGE_SETTINGS);
@@ -189,6 +191,20 @@ export function ConciergePage() {
   const updateDraft = useCallback((patch: Partial<ConciergeDraft>) => {
     setDraft((current) => {
       const next = { ...current, ...patch };
+
+      if (hasSubmittedRef.current) {
+        const nextSnapshot = [
+          (next.lastName.trim() || next.firstName.trim()),
+          next.phone.replace(/\D/g, ''),
+          next.summary.trim(),
+        ].join('|');
+        if (nextSnapshot !== sentSnapshotRef.current) {
+          hasSubmittedRef.current = false;
+          setSubmissionState('idle');
+          next.nextStep = 'Fiche mise à jour — la demande peut être renvoyée';
+        }
+      }
+
       draftRef.current = next;
       return next;
     });
@@ -391,10 +407,27 @@ export function ConciergePage() {
       return;
     }
 
+    if (tool.name === 'end_appointment_flow') {
+      setAppointmentMode(false);
+      sendFunctionResult(tool.callId, {
+        success: true,
+        message: 'Sortie de la prise de rendez-vous. La fiche reste enregistrée et peut être renvoyée après correction. Réponds maintenant aux questions du client.',
+      });
+      requestResponse();
+      return;
+    }
+
     if (tool.name === 'submit_request') {
       if (hasSubmittedRef.current) {
-        sendFunctionResult(tool.callId, { success: true, message: 'La demande a déjà été transmise.' });
-        return;
+        const currentSnapshot = [
+          (draftRef.current.lastName.trim() || draftRef.current.firstName.trim()),
+          draftRef.current.phone.replace(/\D/g, ''),
+          draftRef.current.summary.trim(),
+        ].join('|');
+        if (currentSnapshot === sentSnapshotRef.current) {
+          sendFunctionResult(tool.callId, { success: true, message: 'La demande a déjà été transmise avec ces informations exactes. Ne la renvoie pas.' });
+          return;
+        }
       }
 
       if (booleanArg(args, 'explicit_confirmed') !== true) {
@@ -450,6 +483,11 @@ export function ConciergePage() {
     try {
       const result = await submitConciergeLead(current, source);
       hasSubmittedRef.current = true;
+      sentSnapshotRef.current = [
+        (current.lastName.trim() || current.firstName.trim()),
+        current.phone.replace(/\D/g, ''),
+        current.summary.trim(),
+      ].join('|');
       setSubmissionState('sent');
       updateDraft({
         nextStep: result.telegram
@@ -599,11 +637,18 @@ export function ConciergePage() {
       await sendLead(appointmentMode ? 'concierge' : 'callback');
       const name = draftRef.current.lastName.trim() || draftRef.current.firstName.trim();
       sendUserText(
-        `Le client vient d’appuyer sur le bouton « Envoyer la demande » de la fiche de prise de rendez-vous. La demande de ${name} est déjà transmise à l’équipe CELEC. Confirme-le chaleuresement à l’oral et indique qu’un rappel lui sera proposé. Ne redemande aucune information et ne transmets pas une seconde fois.`,
+        `Le client vient d’appuyer sur le bouton « Envoyer la demande » de la fiche de prise de rendez-vous. La demande de ${name} vient d’être transmise à l’équipe CELEC avec les informations à jour. Confirme-le chaleureusement à l’oral, sans redemander aucune information.`,
       );
     } catch {
       // l’état de transmission reflète déjà l’échec à l’écran
     }
+  };
+
+  const handleExitAppointment = () => {
+    setAppointmentMode(false);
+    sendUserText(
+      'Le client a appuyé sur « Sortir de la prise de rendez-vous ». La fiche reste enregistrée et pourra être renvoyée si elle change. Réponds maintenant à sa nouvelle question.',
+    );
   };
 
   const inSession = status === 'connected' || status === 'ended';
@@ -690,6 +735,7 @@ export function ConciergePage() {
                   onFilePick={handleFilePick}
                   onRemoveAttachment={removeAttachment}
                   onSubmit={handleManualSubmit}
+                  onExit={handleExitAppointment}
                 />
               )}
             </div>
@@ -921,6 +967,7 @@ interface RequestPanelProps {
   onFilePick: (event: ChangeEvent<HTMLInputElement>) => void;
   onRemoveAttachment: (url: string) => void;
   onSubmit: () => void;
+  onExit?: () => void;
 }
 
 function RequestPanel({
@@ -931,6 +978,7 @@ function RequestPanel({
   onFilePick,
   onRemoveAttachment,
   onSubmit,
+  onExit,
 }: RequestPanelProps) {
   const sent = submissionState === 'sent';
   const sending = submissionState === 'sending';
@@ -939,13 +987,14 @@ function RequestPanel({
   const phoneOk = hasValidPhone(draft.phone);
   const objective = draft.summary.trim();
   const readyToSend = Boolean(name) && phoneOk && Boolean(objective);
+  const canSend = readyToSend && !sending;
 
   return (
     <aside className="concierge-request-panel" aria-live="polite">
       <div className="concierge-panel-title">
         <ClipboardList size={18} />
         <span>Prise de rendez-vous</span>
-        {sent && <span className="concierge-submit-status concierge-submit-status--sent">Transmise</span>}
+        {sent && !canSend && <span className="concierge-submit-status concierge-submit-status--sent">Transmise</span>}
       </div>
 
       <div className="concierge-field">
@@ -1027,13 +1076,20 @@ function RequestPanel({
 
       <button
         onClick={onSubmit}
-        disabled={sent || sending}
-        className={`concierge-submit-btn ${readyToSend ? 'concierge-submit-btn--ready' : ''} ${sent ? 'concierge-submit-btn--sent' : ''}`}
+        disabled={!canSend}
+        className={`concierge-submit-btn ${readyToSend ? 'concierge-submit-btn--ready' : ''} ${sent && !readyToSend ? 'concierge-submit-btn--sent' : ''}`}
       >
         {sending && <Loader2 size={16} className="concierge-spin" />}
-        {sent && <CheckCircle2 size={16} />}
-        {sent ? 'Demande transmise' : sending ? 'Envoi…' : 'Envoyer la demande'}
+        {sent && !sending && <CheckCircle2 size={16} />}
+        {sending ? 'Envoi…' : sent ? 'Renvoyer la demande' : 'Envoyer la demande'}
       </button>
+
+      {onExit && (
+        <button onClick={onExit} className="concierge-exit-btn">
+          <LogOut size={14} />
+          Sortir de la prise de rendez-vous
+        </button>
+      )}
 
       {!readyToSend && !sent && (
         <p className="concierge-panel-hint">

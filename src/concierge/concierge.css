@@ -667,6 +667,30 @@
   box-shadow: none;
 }
 
+.concierge-exit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 16px;
+  color: #666;
+  background: none;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.concierge-exit-btn:hover {
+  color: #1a1a1a;
+  border-color: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.02);
+}
+
 .concierge-spin {
   animation: concierge-spin-anim 0.9s linear infinite;
 }
