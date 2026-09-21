@@ -90,8 +90,20 @@ interface CarnetSettings {
   minimax_api_key: string;
   minimax_base_url: string;
   batch_window_seconds: number;
+  ai_language: string;
   updated_at: string;
 }
+
+const languageOptions: { value: string; label: string }[] = [
+  { value: 'fr', label: 'Francais' },
+  { value: 'en', label: 'Anglais' },
+  { value: 'es', label: 'Espagnol' },
+  { value: 'de', label: 'Allemand' },
+  { value: 'it', label: 'Italien' },
+  { value: 'pt', label: 'Portugais' },
+  { value: 'nl', label: 'Neerlandais' },
+  { value: 'ar', label: 'Arabe' },
+];
 
 const modelPresets: { value: string; label: string }[] = [
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini (rapide)' },
@@ -518,6 +530,7 @@ function CarnetSettingsTab() {
       minimax_api_key: settings.minimax_api_key,
       minimax_base_url: settings.minimax_base_url,
       batch_window_seconds: Number(settings.batch_window_seconds) || 120,
+      ai_language: settings.ai_language,
       updated_at: new Date().toISOString(),
     }).eq('id', 1);
     if (error) { setErr(error.message); setSaving(false); return; }
@@ -575,18 +588,30 @@ function CarnetSettingsTab() {
             </select>
           </label>
           <label>
-            <span>Regroupement des envois Telegram</span>
+            <span>Langue de redaction IA</span>
             <select
               className="field"
-              value={String(settings.batch_window_seconds)}
-              onChange={e => setSettings({ ...settings, batch_window_seconds: Number(e.target.value) })}>
-              <option value="30">30 secondes</option>
-              <option value="60">1 minute</option>
-              <option value="120">2 minutes</option>
-              <option value="300">5 minutes</option>
+              value={settings.ai_language}
+              onChange={e => setSettings({ ...settings, ai_language: e.target.value })}
+            >
+              {languageOptions.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
             </select>
           </label>
         </div>
+
+        <label>
+          <span>Regroupement des envois Telegram</span>
+          <select
+            className="field"
+            value={String(settings.batch_window_seconds)}
+            onChange={e => setSettings({ ...settings, batch_window_seconds: Number(e.target.value) })}
+          >
+            <option value="30">30 secondes</option>
+            <option value="60">1 minute</option>
+            <option value="120">2 minutes</option>
+            <option value="300">5 minutes</option>
+          </select>
+        </label>
 
         <label>
           <span>Modele IA</span>
@@ -955,10 +980,36 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
                   </div>
                   {isExpanded && (
                     <div className="crn-draft-expanded">
-                      {p.description && <div className="crn-raw-block"><span className="crn-raw-label">Description (resume IA)</span><p>{p.description}</p></div>}
+                      {p.description && <div className="crn-raw-block"><span className="crn-raw-label">Description</span><p>{p.description}</p></div>}
                       {p.voice_transcript && <div className="crn-raw-block"><span className="crn-raw-label">Transcription vocale</span><p>{p.voice_transcript}</p></div>}
                       {brands.length > 0 && <div className="crn-raw-block"><span className="crn-raw-label">Marques detectees</span><div className="crn-brands-tags">{brands.map((b, i) => <span key={i} className="crn-brand-tag">{b}</span>)}</div></div>}
-                      {hasRawData && p.raw_data && <details className="crn-raw-details"><summary>Donnees brutes</summary><pre className="crn-raw-json">{JSON.stringify(p.raw_data, null, 2)}</pre></details>}
+                      {hasRawData && p.raw_data && (() => {
+                        const telegram = p.raw_data!.telegram as Record<string, unknown> | undefined;
+                        const aiKeys = Object.keys(p.raw_data!).filter(k => k.startsWith('ai_'));
+                        const otherKeys = Object.keys(p.raw_data!).filter(k => k !== 'telegram' && !k.startsWith('ai_'));
+                        return (
+                          <>
+                            {telegram && (
+                              <div className="crn-raw-block">
+                                <span className="crn-raw-label">Message Telegram</span>
+                                <pre className="crn-raw-json">{JSON.stringify(telegram, null, 2)}</pre>
+                              </div>
+                            )}
+                            {aiKeys.length > 0 && (
+                              <div className="crn-raw-block">
+                                <span className="crn-raw-label">Analyse IA</span>
+                                <pre className="crn-raw-json">{JSON.stringify(Object.fromEntries(aiKeys.map(k => [k, p.raw_data![k]])), null, 2)}</pre>
+                              </div>
+                            )}
+                            {otherKeys.length > 0 && (
+                              <details className="crn-raw-details">
+                                <summary>Autres donnees</summary>
+                                <pre className="crn-raw-json">{JSON.stringify(Object.fromEntries(otherKeys.map(k => [k, p.raw_data![k]])), null, 2)}</pre>
+                              </details>
+                            )}
+                          </>
+                        );
+                      })()}
                       {(p.images?.length ?? 0) > 0 && <div className="crn-draft-gallery">{p.images!.map(img => <img key={img.id} src={img.image_url} alt="" className="crn-draft-gallery-img" />)}</div>}
                       <div className="crn-draft-actions">
                         <button className="crn-btn-publish" onClick={() => handlePublish(p.id)} disabled={publishing === p.id}><Eye size={13} /> {publishing === p.id ? '...' : 'Publier'}</button>

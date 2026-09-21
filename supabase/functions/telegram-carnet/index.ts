@@ -12,14 +12,15 @@ const SENDER_BATCH_TTL_MS = 10 * 60 * 1000;
 const MAX_BATCHES_PER_CALL = 5;
 
 const DEFAULT_PROMPT =
-  "Tu es l'assistant de CELEC, un electricien de terrain en region parisienne. On t'envoie des photos et ou un texte pris sur un chantier. Tu dois analyser et produire un JSON avec exactement ces champs.";
+  "Tu es l'assistant de CELEC, un electricien de terrain en region parisienne. On t'envoie des photos et ou un texte pris sur un chantier. Tu dois decrire l'intervention et produire un JSON avec exactement ces champs.";
 
-const JSON_SCHEMA = `Reponds UNIQUEMENT avec un JSON de cette forme, sans markdown, sans backticks :
+const JSON_SCHEMA = `Reponds UNIQUEMENT avec le JSON demande. Aucun raisonnement, aucune explication, aucun texte avant ou apres le JSON, pas de markdown, pas de backticks.
 {"title":"...","summary":"...","brands":["..."],"category":"..."}
-- "title" : titre court et descriptif pour le carnet de bord (max 60 caracteres)
-- "summary" : description claire de l'intervention ou de la situation montree (2-4 phrases). Explique ce qui est montre, le type de travail, le contexte.
+- "title" : titre court et descriptif pour le carnet de bord (max 60 caracteres). Jamais "Sans titre".
+- "summary" : vraie description de l'intervention ou de la situation montree (2-4 phrases). Explique ce qui est montre, le type de travail, le contexte.
 - "brands" : tableau des marques visibles ou mentionnees (ex: ["Legrand", "Schneider"]). Si aucune marque, tableau vide.
-- "category" : une parmi "depannage", "renovation", "installation", "diagnostic", "autre"`;
+- "category" : une parmi "depannage", "renovation", "installation", "diagnostic", "autre"
+Interdiction absolue d'ecrire tes reflexions, tes doutes, tes hypotheses ou la maniere dont tu examines les images. Le champ "summary" decrit le chantier, pas ta demarche.`;
 
 interface CarnetSettings {
   ai_prompt: string;
@@ -31,6 +32,7 @@ interface CarnetSettings {
   minimax_api_key: string;
   minimax_base_url: string;
   batch_window_seconds: number;
+  ai_language: string;
 }
 
 interface AiProvider {
@@ -107,7 +109,12 @@ Deno.serve(async (req: Request) => {
     // Transcription (only when enabled and an OpenAI key is present)
     let transcript: string | null = null;
     if (input.voice && settings?.auto_transcribe !== false && openaiKey) {
-      transcript = await transcribeVoice(botToken, input.voice.file_id, openaiKey);
+      transcript = await transcribeVoice(
+        botToken,
+        input.voice.file_id,
+        openaiKey,
+        settings?.ai_language || "fr"
+      );
     }
 
     // Download the photo of THIS message (Telegram sends several sizes of the SAME image,
@@ -510,6 +517,26 @@ async function finalizeBatch(
   }
 
   const voiceTranscript = transcripts.length > 0 ? transcripts.join("\n") : null;
+
+  // Nothing was received: no image could be retrieved and there is no text or voice.
+  // Creating an empty carnet entry would only produce a meaningless draft.
+  if (allImages.length === 0 && !captionText.trim() && !voiceTranscript) {
+    await supabase
+      .from("telegram_batches")
+      .update({
+        status: "failed",
+        error: "Aucun contenu recu : image non recuperee",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", batch.id);
+    await sendTelegram(
+      botToken,
+      batch.chat_id,
+      "Je n'ai pas pu recuperer la photo de ce message, le carnet n'a pas ete cree. Merci de renvoyer la photo."
+    );
+    return;
+  }
+
   const userText = captions.length > 0
     ? captionText.replace(/#\S+/g, "").replace(/@\S+/g, "").trim()
     : voiceTranscript || "";
@@ -525,7 +552,11 @@ async function finalizeBatch(
   const userTitle = lines[0] || "";
   const userDescription = lines.slice(1).join("\n") || null;
 
-  const finalTitle = (userTitle || ai.title || "Sans titre").slice(0, 120);
+  const finalTitle = (
+    ai.title ||
+    userTitle ||
+    fallbackTitle(settings?.ai_language || "fr", ai.category, city)
+  ).slice(0, 120);
   const finalDescription = ai.summary || userDescription || null;
 
   const { data: entry, error: insertErr } = await supabase
@@ -611,9 +642,44 @@ async function finalizeBatch(
 
 /* ── AI analysis ── */
 
+const LANGUAGES: Record<string, string> = {
+  fr: "francais",
+  en: "anglais",
+  es: "espagnol",
+  de: "allemand",
+  it: "italien",
+  pt: "portugais",
+  nl: "neerlandais",
+  ar: "arabe",
+};
+
+const FALLBACK_LABELS: Record<string, { prefix: string; at: string }> = {
+  fr: { prefix: "Intervention", at: "a" },
+  en: { prefix: "Job", at: "in" },
+  es: { prefix: "Intervencion", at: "en" },
+  de: { prefix: "Einsatz", at: "in" },
+  it: { prefix: "Intervento", at: "a" },
+  pt: { prefix: "Intervencao", at: "em" },
+  nl: { prefix: "Opdracht", at: "in" },
+};
+
+function fallbackTitle(language: string, category: string, city: string): string {
+  const lang = (language || "fr").slice(0, 2).toLowerCase();
+  const labels = FALLBACK_LABELS[lang] || FALLBACK_LABELS.fr;
+  const parts = [labels.prefix];
+  if (category) parts.push(category);
+  if (city) parts.push(`${labels.at} ${city}`);
+  return parts.join(" ");
+}
+
 function buildPrompt(settings: CarnetSettings | null): string {
   const base = (settings?.ai_prompt || "").trim() || DEFAULT_PROMPT;
+  const language = (settings?.ai_language || "fr").slice(0, 2).toLowerCase();
+  const languageName = LANGUAGES[language] || LANGUAGES.fr;
   const parts = [base];
+  parts.push(
+    `Tu rediges TOUJOURS le titre et le resume en ${languageName}, meme si les messages recus sont dans une autre langue.`
+  );
   const style = (settings?.ai_style || "professionnel").trim();
   if (style) {
     parts.push(`Style de redaction demande : ${style}.`);
@@ -650,6 +716,39 @@ function resolveProvider(
     url: "https://api.openai.com/v1/chat/completions",
     apiKey: openaiKey,
   };
+}
+
+// Models often wrap the JSON in reasoning prose or fences. This pulls out the first
+// balanced JSON object so the content is never mistaken for a description.
+function extractJsonObject(text: string): string | null {
+  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  const start = cleaned.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      if (inString) escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return cleaned.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 interface AiResult {
@@ -732,39 +831,44 @@ async function analyzeWithAi(
       return empty;
     }
 
-    const cleaned = textContent
-      .replace(/^```(?:json)?/i, "")
-      .replace(/```$/, "")
-      .trim();
-    try {
-      const parsed = JSON.parse(cleaned);
-      return {
-        title: typeof parsed.title === "string" ? parsed.title : "",
-        summary: typeof parsed.summary === "string" ? parsed.summary : null,
-        brands:
-          settings?.detect_brands === false
-            ? []
-            : Array.isArray(parsed.brands)
-              ? parsed.brands.filter((b: unknown) => typeof b === "string")
-              : [],
-        category: typeof parsed.category === "string" ? parsed.category : "",
-        provider: provider.name,
-        model: provider.model,
-        raw: parsed,
-        error: null,
-      };
-    } catch {
-      return {
-        title: "",
-        summary: textContent,
-        brands: [],
-        category: "",
-        provider: provider.name,
-        model: provider.model,
-        raw: { raw_response: textContent },
-        error: null,
-      };
+    const jsonText = extractJsonObject(textContent);
+    if (jsonText) {
+      try {
+        const parsed = JSON.parse(jsonText);
+        const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";
+        return {
+          title: typeof parsed.title === "string" ? parsed.title.trim() : "",
+          summary: summary || null,
+          brands:
+            settings?.detect_brands === false
+              ? []
+              : Array.isArray(parsed.brands)
+                ? parsed.brands.filter((b: unknown) => typeof b === "string")
+                : [],
+          category: typeof parsed.category === "string" ? parsed.category : "",
+          provider: provider.name,
+          model: provider.model,
+          raw: parsed,
+          error: null,
+        };
+      } catch {
+        // fall through to the unparsed branch below
+      }
     }
+
+    // The model answered but no usable JSON was found. Nothing from the raw answer
+    // is used as a description: the technician's own caption and a generated title
+    // take over, so no reasoning text can ever reach the carnet.
+    return {
+      title: "",
+      summary: null,
+      brands: [],
+      category: "",
+      provider: provider.name,
+      model: provider.model,
+      raw: { unparsed_response: textContent.slice(0, 2000) },
+      error: "Reponse IA non exploitable",
+    };
   } catch (e) {
     empty.error = (e as Error).message;
     return empty;
@@ -776,7 +880,8 @@ async function analyzeWithAi(
 async function transcribeVoice(
   botToken: string,
   fileId: string,
-  openaiKey: string
+  openaiKey: string,
+  language: string
 ): Promise<string | null> {
   try {
     const fileUrl = await getTelegramFileUrl(botToken, fileId);
@@ -787,7 +892,7 @@ async function transcribeVoice(
     const formData = new FormData();
     formData.append("file", audioBlob, "voice.ogg");
     formData.append("model", "whisper-1");
-    formData.append("language", "fr");
+    formData.append("language", (language || "fr").slice(0, 2).toLowerCase());
 
     const whisperResp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
@@ -821,26 +926,31 @@ async function fetchAndStoreImage(
   fileId: string,
   position: number
 ): Promise<string | null> {
-  try {
-    const fileUrl = await getTelegramFileUrl(botToken, fileId);
-    if (!fileUrl) return null;
-    const resp = await fetch(fileUrl);
-    if (!resp.ok) return null;
-    const blob = await resp.blob();
-    const ext = fileUrl.split(".").pop()?.split("?")[0] || "jpg";
-    const path = `telegram/${Date.now()}-${position}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}.${ext}`;
-    const { error } = await supabase.storage.from("photos").upload(path, blob, {
-      contentType: blob.type || "image/jpeg",
-      upsert: false,
-    });
-    if (error) return null;
-    const { data } = supabase.storage.from("photos").getPublicUrl(path);
-    return data.publicUrl;
-  } catch {
-    return null;
+  // Telegram occasionally answers too slowly on the first try: retry once before giving up.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1200));
+    try {
+      const fileUrl = await getTelegramFileUrl(botToken, fileId);
+      if (!fileUrl) continue;
+      const resp = await fetch(fileUrl);
+      if (!resp.ok) continue;
+      const blob = await resp.blob();
+      const ext = fileUrl.split(".").pop()?.split("?")[0] || "jpg";
+      const path = `telegram/${Date.now()}-${position}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}.${ext}`;
+      const { error } = await supabase.storage.from("photos").upload(path, blob, {
+        contentType: blob.type || "image/jpeg",
+        upsert: false,
+      });
+      if (error) continue;
+      const { data } = supabase.storage.from("photos").getPublicUrl(path);
+      return data.publicUrl;
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 async function sendTelegram(botToken: string, chatId: number, text: string) {
