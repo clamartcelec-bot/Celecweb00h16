@@ -79,7 +79,7 @@ export async function createRealtimeSession(
     throw new Error('No SDP offer generated');
   }
 
-  const response = await fetch(`${supabaseUrl}/functions/v1/concierge-realtime`, {
+  const response = await fetch(`${supabaseUrl}/functions/v1/realtime-session`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
