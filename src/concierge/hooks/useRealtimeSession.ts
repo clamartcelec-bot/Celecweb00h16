@@ -20,6 +20,7 @@ export interface TranscriptEvent {
   role: 'user' | 'assistant';
   text: string;
   final: boolean;
+  fullText?: string;
 }
 
 export function useRealtimeSession(conversationId: string | null) {
@@ -28,6 +29,8 @@ export function useRealtimeSession(conversationId: string | null) {
   const [isMuted, setIsMuted] = useState(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   const sessionRef = useRef<WebRTCSession | null>(null);
   const toolCallHandlerRef = useRef<((tool: ToolCall) => void) | null>(null);
@@ -46,6 +49,7 @@ export function useRealtimeSession(conversationId: string | null) {
   }, []);
   const pendingArgsRef = useRef<Map<string, string>>(new Map());
   const processedCallsRef = useRef<Set<string>>(new Set());
+  const assistantTranscriptRef = useRef('');
 
   const dispatchToolCall = useCallback((callId: string, name: string, argsStr: string) => {
     if (!callId || !name || processedCallsRef.current.has(callId)) return;
@@ -80,12 +84,22 @@ export function useRealtimeSession(conversationId: string | null) {
     }
 
     if (type === 'response.output_audio_transcript.delta') {
-      transcriptHandlerRef.current?.({ role: 'assistant', text: String(msg.delta ?? ''), final: false });
+      assistantTranscriptRef.current += String(msg.delta ?? '');
+      transcriptHandlerRef.current?.({
+        role: 'assistant',
+        text: String(msg.delta ?? ''),
+        final: false,
+        fullText: assistantTranscriptRef.current,
+      });
     }
 
     if (type === 'response.output_audio_transcript.done') {
-      transcriptHandlerRef.current?.({ role: 'assistant', text: String(msg.transcript ?? ''), final: true });
+      const complete = String(msg.transcript ?? '') || assistantTranscriptRef.current;
+      assistantTranscriptRef.current = '';
+      transcriptHandlerRef.current?.({ role: 'assistant', text: complete, final: true, fullText: complete });
     }
+
+    if (type === 'response.created') assistantTranscriptRef.current = '';
 
     if (type === 'response.function_call_arguments.delta') {
       const callId = msg.call_id as string;
@@ -167,6 +181,8 @@ export function useRealtimeSession(conversationId: string | null) {
         conversationId,
       );
       sessionRef.current = session;
+      setLocalStream(session.localStream);
+      setRemoteStream(session.remoteStream);
       setStatus('connected');
     } catch (e) {
       stream.getTracks().forEach((t) => t.stop());
@@ -182,6 +198,8 @@ export function useRealtimeSession(conversationId: string | null) {
       window.clearTimeout(responseTimerRef.current);
       responseTimerRef.current = null;
     }
+    setLocalStream(null);
+    setRemoteStream(null);
     setIsUserSpeaking(false);
     setIsAssistantSpeaking(false);
     setStatus('ended');
@@ -255,6 +273,8 @@ export function useRealtimeSession(conversationId: string | null) {
     isMuted,
     isUserSpeaking,
     isAssistantSpeaking,
+    localStream,
+    remoteStream,
     start,
     stop,
     toggleMute,

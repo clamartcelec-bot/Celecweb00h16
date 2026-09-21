@@ -2,6 +2,7 @@ export interface WebRTCSession {
   pc: RTCPeerConnection;
   dc: RTCDataChannel;
   localStream: MediaStream;
+  remoteStream: MediaStream;
   remoteAudioEl: HTMLAudioElement;
 }
 
@@ -45,11 +46,16 @@ export async function createRealtimeSession(
 
   const remoteAudioEl = new Audio();
   remoteAudioEl.autoplay = true;
+  const remoteStream = new MediaStream();
 
   pc.ontrack = (event) => {
     console.log('Remote track received:', event.track.kind);
-    const remoteStream = event.streams?.[0] || new MediaStream([event.track]);
-    remoteAudioEl.srcObject = remoteStream;
+    if (event.streams?.[0]) {
+      remoteAudioEl.srcObject = event.streams[0];
+    } else {
+      remoteStream.addTrack(event.track);
+      remoteAudioEl.srcObject = remoteStream;
+    }
   };
 
   for (const track of localStream.getTracks()) {
@@ -106,7 +112,7 @@ export async function createRealtimeSession(
 
   await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
 
-  return { pc, dc, localStream, remoteAudioEl };
+  return { pc, dc, localStream, remoteStream, remoteAudioEl };
 }
 
 export function closeSession(session: WebRTCSession | null) {

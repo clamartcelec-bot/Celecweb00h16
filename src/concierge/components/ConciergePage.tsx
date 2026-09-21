@@ -5,7 +5,9 @@ import {
   Camera,
   CheckCircle2,
   ClipboardList,
+  ChevronDown,
   Clock3,
+  History,
   Loader2,
   MapPin,
   Mic,
@@ -20,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useRealtimeSession, type ToolCall, type TranscriptEvent } from '../hooks/useRealtimeSession';
 import { useConversationTimer } from '../hooks/useConversationTimer';
+import { useAudioLevels } from '../hooks/useAudioLevels';
 import { formatConciergeContext, formatConciergeResume, loadConciergeContext, type ConciergeContext } from '../services/context';
 import {
   EMPTY_KNOWLEDGE,
@@ -115,6 +118,8 @@ export function ConciergePage() {
     isMuted,
     isUserSpeaking,
     isAssistantSpeaking,
+    localStream,
+    remoteStream,
     start,
     stop,
     toggleMute,
@@ -132,6 +137,8 @@ export function ConciergePage() {
   const [settings, setSettings] = useState<ConciergeSettings>(DEFAULT_CONCIERGE_SETTINGS);
   const [cards, setCards] = useState<ConciergeCard[]>([]);
   const [messages, setMessages] = useState<ConciergeMessage[]>([]);
+  const [aiReply, setAiReply] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [composerText, setComposerText] = useState('');
   const [appointmentMode, setAppointmentMode] = useState(false);
   const [submissionState, setSubmissionState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -149,6 +156,7 @@ export function ConciergePage() {
   const sessionIdRef = useRef<string | null>(null);
   const shownCardIdsRef = useRef<Set<string>>(new Set());
   const transcriptRef = useRef<ConciergeMessage[]>([]);
+  const pendingAiRef = useRef('');
   const isResumingRef = useRef(false);
 
   useEffect(() => {
@@ -222,28 +230,29 @@ export function ConciergePage() {
   }, []);
 
   const handleTranscript = useCallback((event: TranscriptEvent) => {
+    if (event.role === 'assistant') {
+      // Le texte du modèle arrive parfois vide ou après l'audio : on ne remplace
+      // la phrase en cours que si on a bien un texte à afficher.
+      const next = event.fullText || event.text;
+      if (next) setAiReply(next);
+      return;
+    }
+
+    if (!event.final) {
+      setComposerText((current) => current || event.text);
+      return;
+    }
+
     setMessages((current) => {
-      const last = current[current.length - 1];
-      let next: ConciergeMessage[];
-
-      if (last && last.role === event.role && last.pending) {
-        next = [...current.slice(0, -1), {
-          ...last,
-          text: event.final ? event.text : last.text + event.text,
-          pending: !event.final,
-        }];
-      } else {
-        next = [...current, {
-          id: `${event.role}-${current.length}-${Date.now()}`,
-          role: event.role,
-          text: event.text,
-          pending: !event.final,
-        }];
-      }
-
+      const next = [...current, {
+        id: `user-${current.length}-${Date.now()}`,
+        role: 'user' as const,
+        text: event.text,
+      }];
       transcriptRef.current = next;
       return next;
     });
+    setComposerText('');
   }, []);
 
   const handleToolCall = useCallback(async (tool: ToolCall) => {
@@ -512,6 +521,12 @@ export function ConciergePage() {
   }, [handleTranscript, onTranscript]);
 
   useEffect(() => {
+    if (!aiReply) return;
+    const timer = window.setTimeout(() => setAiReply(''), aiReply.length * 65 + 2_600);
+    return () => window.clearTimeout(timer);
+  }, [aiReply]);
+
+  useEffect(() => {
     if (status !== 'connected') {
       hasStartedGreetingRef.current = false;
       return;
@@ -717,7 +732,12 @@ export function ConciergePage() {
                 isMuted={isMuted}
                 isUserSpeaking={isUserSpeaking}
                 isAssistantSpeaking={isAssistantSpeaking}
+                localStream={localStream}
+                remoteStream={remoteStream}
+                aiReply={aiReply}
                 messages={messages}
+                historyOpen={historyOpen}
+                onToggleHistory={() => setHistoryOpen((value) => !value)}
                 composerText={composerText}
                 onComposerChange={setComposerText}
                 onComposerKeyDown={handleComposerKeyDown}
@@ -820,7 +840,12 @@ interface ActiveViewProps {
   isMuted: boolean;
   isUserSpeaking: boolean;
   isAssistantSpeaking: boolean;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
+  aiReply: string;
   messages: ConciergeMessage[];
+  historyOpen: boolean;
+  onToggleHistory: () => void;
   composerText: string;
   onComposerChange: (value: string) => void;
   onComposerKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -836,7 +861,12 @@ function ActiveView({
   isMuted,
   isUserSpeaking,
   isAssistantSpeaking,
+  localStream,
+  remoteStream,
+  aiReply,
   messages,
+  historyOpen,
+  onToggleHistory,
   composerText,
   onComposerChange,
   onComposerKeyDown,
@@ -845,19 +875,18 @@ function ActiveView({
   onToggleMute,
   onEnd,
 }: ActiveViewProps) {
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages]);
-
-  const showQuickPrompts = messages.length <= 1;
+  const { inputLevels, outputLevels } = useAudioLevels(
+    isMuted ? null : localStream,
+    remoteStream,
+  );
+  const showQuickPrompts = messages.length <= 1 && !aiReply;
+  const displayedReply = aiReply;
 
   return (
     <div className={`concierge-active ${compact ? 'concierge-active--compact' : ''}`}>
       <div className="concierge-status-row">
         <div className="concierge-live-dot" />
-        <span>Conversation en cours</span>
+        <span>{isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…' : 'À l’écoute'}</span>
         <span className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}>
           {timer.formatted}
         </span>
@@ -871,26 +900,36 @@ function ActiveView({
       )}
 
       <div className="concierge-audio-viz">
-        <AudioBars label="VOUS" variant="user" active={isUserSpeaking && !isMuted} />
-        <AudioBars label="CELEC" variant="celec" active={isAssistantSpeaking} />
+        <AudioBars label="VOUS" variant="user" levels={inputLevels} active={isUserSpeaking && !isMuted} />
+        <AudioBars label="CELEC" variant="celec" levels={outputLevels} active={isAssistantSpeaking} />
       </div>
 
-      <div className="concierge-transcript" aria-live="polite">
-        {messages.length === 0 ? (
-          <p className="concierge-transcript-empty">La conversation s’affiche ici, en direct.</p>
-        ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`concierge-bubble concierge-bubble--${message.role} ${message.pending ? 'concierge-bubble--pending' : ''}`}
-            >
-              <span className="concierge-bubble-author">{message.role === 'user' ? 'Vous' : 'CELEC'}</span>
-              <p>{message.text}</p>
-            </div>
-          ))
-        )}
-        <div ref={transcriptEndRef} />
+      <div className="concierge-speech-card">
+        <span className="concierge-speech-label">CELEC dit</span>
+        <p className={`concierge-speech-text ${displayedReply ? 'concierge-speech-text--live' : ''}`}>
+          {displayedReply || 'Le concierge prend la parole…'}
+        </p>
       </div>
+
+      {messages.length > 0 && (
+        <div className="concierge-history">
+          <button onClick={onToggleHistory} className="concierge-history-toggle">
+            <History size={15} />
+            Historique de la conversation ({messages.length})
+            <ChevronDown size={15} className={`cc-chevron ${historyOpen ? 'cc-chevron--up' : ''}`} />
+          </button>
+          {historyOpen && (
+            <div className="concierge-history-list">
+              {messages.map((message) => (
+                <div key={message.id} className={`concierge-bubble concierge-bubble--${message.role}`}>
+                  <span className="concierge-bubble-author">{message.role === 'user' ? 'Vous' : 'CELEC'}</span>
+                  <p>{message.text}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="concierge-composer">
         <textarea
@@ -898,7 +937,7 @@ function ActiveView({
           onChange={(event) => onComposerChange(event.target.value)}
           onKeyDown={onComposerKeyDown}
           rows={1}
-          placeholder="Écrivez votre message…"
+          placeholder="Écrivez ou parlez…"
           className="concierge-composer-input"
         />
         <button
@@ -942,16 +981,26 @@ function ActiveView({
   );
 }
 
-function AudioBars({ label, variant, active }: { label: string; variant: 'user' | 'celec'; active: boolean }) {
+function AudioBars({
+  label,
+  variant,
+  levels,
+  active,
+}: {
+  label: string;
+  variant: 'user' | 'celec';
+  levels: number[];
+  active: boolean;
+}) {
   return (
     <div className="concierge-viz-column">
       <span className="concierge-viz-label">{label}</span>
       <div className={`concierge-viz-bars ${active ? 'concierge-viz-bars--active' : ''}`}>
-        {Array.from({ length: 5 }).map((_, index) => (
+        {levels.map((level, index) => (
           <div
             key={index}
             className={`concierge-viz-bar concierge-viz-bar--${variant}`}
-            style={{ animationDelay: `${index * (variant === 'user' ? 0.1 : 0.12)}s` }}
+            style={{ height: `${Math.round(level * 84)}px` }}
           />
         ))}
       </div>
