@@ -49,6 +49,21 @@ const TOPICS: Array<{ label: string; category: RequestCategory }> = [
   { label: 'Je ne sais pas vraiment', category: 'question' },
 ];
 
+const QUICK_ACTIONS: Array<{ label: string; prompt: string }> = [
+  {
+    label: 'Prendre rendez-vous',
+    prompt: "Je souhaite prendre rendez-vous avec CELEC. Lance le mode rendez-vous et remplis la fiche avec moi au fil de la conversation.",
+  },
+  {
+    label: 'Ce que vous faites',
+    prompt: "Raconte-moi ce que fait CELEC : dépannage, travaux, projets. Illustre avec un ou deux billets du carnet si c'est pertinent.",
+  },
+  {
+    label: 'Avec qui vous travaillez',
+    prompt: "Avec quelles marques et quels partenaires CELEC travaille-t-il ? Présente-les et affiche les fiches correspondantes.",
+  },
+];
+
 function stringArg(args: Record<string, unknown>, key: string) {
   return typeof args[key] === 'string' ? args[key].trim() : undefined;
 }
@@ -91,6 +106,7 @@ export function ConciergePage() {
     onToolCall,
     injectSystemMessage,
     requestResponse,
+    sendUserText,
   } = useRealtimeSession(conversationId);
 
   const [draft, setDraft] = useState<ConciergeDraft>(EMPTY_CONCIERGE_DRAFT);
@@ -98,7 +114,6 @@ export function ConciergePage() {
   const [knowledgeReady, setKnowledgeReady] = useState(false);
   const [settings, setSettings] = useState<ConciergeSettings>(DEFAULT_CONCIERGE_SETTINGS);
   const [cards, setCards] = useState<ConciergeCard[]>([]);
-  const [openCardId, setOpenCardId] = useState<string | null>(null);
   const [appointmentMode, setAppointmentMode] = useState(false);
   const [submissionState, setSubmissionState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
 
@@ -163,7 +178,6 @@ export function ConciergePage() {
 
     fresh.forEach((card) => shownCardIdsRef.current.add(card.id));
     setCards((current) => [...fresh, ...current].slice(0, 24));
-    setOpenCardId(fresh[0].id);
 
     const entryIds = fresh.filter((card) => card.kind === 'carnet').map((card) => card.id);
     if (entryIds.length) void markPresentedEntries(entryIds, sessionIdRef.current);
@@ -410,7 +424,6 @@ export function ConciergePage() {
     hasSubmittedRef.current = false;
     setSubmissionState('idle');
     setCards([]);
-    setOpenCardId(null);
     setAppointmentMode(false);
     shownCardIdsRef.current.clear();
     sessionIdRef.current = startConciergeSession();
@@ -431,45 +444,38 @@ export function ConciergePage() {
     window.location.href = '/';
   };
 
-  const toggleCard = (cardId: string) => {
-    setOpenCardId((current) => (current === cardId ? null : cardId));
-  };
-
   const inSession = status === 'connected' || status === 'ended';
-  const hasFlow = cards.length > 0 || Boolean(draft.summary) || submissionState !== 'idle';
+  const showRequestPanel = appointmentMode || submissionState !== 'idle';
+  const hasFlow = cards.length > 0 || showRequestPanel;
 
-  const flow = useMemo(() => (
-    <div className="concierge-flow">
-      <div className="concierge-flow-head">
-        <span className="concierge-flow-label">Ce que je vous montre</span>
-        {appointmentMode && <span className="concierge-flow-focus">Mode rendez-vous</span>}
-      </div>
-      {cards.length === 0 ? (
-        <p className="concierge-flow-empty">
-          Les éléments du carnet et les marques apparaîtront ici au fil de la conversation, dès qu’ils éclairent une réponse.
-        </p>
-      ) : (
+  const flow = useMemo(() => {
+    if (!cards.length) return null;
+    return (
+      <div className="concierge-flow">
+        <div className="concierge-flow-head">
+          <span className="concierge-flow-label">Ce que je vous montre</span>
+          {appointmentMode && <span className="concierge-flow-focus">Mode rendez-vous</span>}
+        </div>
         <div className="concierge-card-list">
-          {cards.map((card) => (
+          {cards.map((card, index) => (
             <CardChip
               key={card.id}
               card={card}
-              expanded={openCardId === card.id}
+              featured={index === 0}
               detailHref={card.kind === 'carnet'
                 ? carnetUrlForSession(sessionIdRef.current)
                 : brandCardHref(card.brandName ?? card.title)}
-              onToggle={() => toggleCard(card.id)}
             />
           ))}
         </div>
-      )}
-      {status === 'ended' && cards.length > 0 && (
-        <p className="concierge-flow-note">
-          L’appel est terminé. Les billets présentés restent marqués dans le carnet jusqu’à votre prochaine visite.
-        </p>
-      )}
-    </div>
-  ), [appointmentMode, cards, openCardId, status]);
+        {status === 'ended' && (
+          <p className="concierge-flow-note">
+            L’appel est terminé. Les billets présentés restent marqués dans le carnet jusqu’à votre prochaine visite.
+          </p>
+        )}
+      </div>
+    );
+  }, [appointmentMode, cards, status]);
 
   return (
     <div className="concierge-page">
@@ -500,16 +506,18 @@ export function ConciergePage() {
 
         {status === 'connected' && (
           <>
-            <div className="concierge-session-layout">
+            <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
               <ActiveView
                 timer={timer}
+                compact={cards.length > 0}
                 isMuted={isMuted}
                 isUserSpeaking={isUserSpeaking}
                 isAssistantSpeaking={isAssistantSpeaking}
                 onToggleMute={toggleMute}
                 onEnd={handleEnd}
+                onQuickAction={sendUserText}
               />
-              <RequestPanel draft={draft} submissionState={submissionState} />
+              {showRequestPanel && <RequestPanel draft={draft} submissionState={submissionState} />}
             </div>
             {flow}
           </>
@@ -519,9 +527,9 @@ export function ConciergePage() {
 
         {status === 'ended' && (
           <>
-            <div className="concierge-session-layout">
+            <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
               <EndedView draft={draft} onRestart={() => handleStart()} onBack={handleGoBack} />
-              <RequestPanel draft={draft} submissionState={submissionState} />
+              {showRequestPanel && <RequestPanel draft={draft} submissionState={submissionState} />}
             </div>
             {flow}
           </>
@@ -578,16 +586,18 @@ function ConnectingView({ label }: { label: string }) {
 
 interface ActiveViewProps {
   timer: { formatted: string; warningLevel: 'none' | 'approaching' | 'ending' };
+  compact: boolean;
   isMuted: boolean;
   isUserSpeaking: boolean;
   isAssistantSpeaking: boolean;
   onToggleMute: () => void;
   onEnd: () => void;
+  onQuickAction: (prompt: string) => void;
 }
 
-function ActiveView({ timer, isMuted, isUserSpeaking, isAssistantSpeaking, onToggleMute, onEnd }: ActiveViewProps) {
+function ActiveView({ timer, compact, isMuted, isUserSpeaking, isAssistantSpeaking, onToggleMute, onEnd, onQuickAction }: ActiveViewProps) {
   return (
-    <div className="concierge-active">
+    <div className={`concierge-active ${compact ? 'concierge-active--compact' : ''}`}>
       <div className="concierge-status-row">
         <div className="concierge-live-dot" />
         <span>Conversation en cours</span>
@@ -621,6 +631,18 @@ function ActiveView({ timer, isMuted, isUserSpeaking, isAssistantSpeaking, onTog
           <PhoneOff size={20} />
           Raccrocher
         </button>
+      </div>
+
+      <div className="concierge-quick-actions">
+        {QUICK_ACTIONS.map((action) => (
+          <button
+            key={action.label}
+            onClick={() => onQuickAction(action.prompt)}
+            className="concierge-quick-btn"
+          >
+            {action.label}
+          </button>
+        ))}
       </div>
     </div>
   );

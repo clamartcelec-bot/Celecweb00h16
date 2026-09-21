@@ -180,6 +180,19 @@ export function useRealtimeSession(conversationId: string | null) {
     sendDataChannelEvent(sessionRef.current.dc, { type: 'response.create' });
   }, []);
 
+  const sendUserText = useCallback((text: string) => {
+    if (!sessionRef.current) return;
+    sendDataChannelEvent(sessionRef.current.dc, {
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text }],
+      },
+    });
+    sendDataChannelEvent(sessionRef.current.dc, { type: 'response.create' });
+  }, []);
+
   const toggleMute = useCallback(() => {
     const session = sessionRef.current;
     if (!session) return;
@@ -204,5 +217,6 @@ export function useRealtimeSession(conversationId: string | null) {
     onToolCall,
     injectSystemMessage,
     requestResponse,
+    sendUserText,
   };
 }
