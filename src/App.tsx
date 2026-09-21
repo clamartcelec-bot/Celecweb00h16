@@ -39,6 +39,8 @@ import { supabase } from '@/lib/supabase';
 import { LoginModal } from '@/components/LoginModal';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { ClientSpace } from '@/components/ClientSpace';
+import { CONCIERGE_SESSION_PARAM, currentConciergeSession } from '@/lib/conciergeSession';
+import { findPresentedEntry } from '@/concierge/services/presence';
 
 type Lang = 'fr' | 'en' | 'es' | 'ar';
 type View = 'home' | 'carnet' | 'partners' | 'blocktech' | 'admin-login' | 'admin';
@@ -412,6 +414,9 @@ function App() {
   const [carnetDetail, setCarnetDetail] = useState<Photo | null>(null);
   const [brandView, setBrandView] = useState<{ name: string; partner: Partner | null } | null>(null);
   const [brandReturn, setBrandReturn] = useState<string | null>(null);
+  const [conciergeReturn, setConciergeReturn] = useState<string | null>(null);
+  const pendingBrandRef = useRef<string | null>(null);
+  const pendingConciergeEntry = useRef(false);
   const [mapSelectedCity, setMapSelectedCity] = useState<string | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
   const [contactCategory, setContactCategory] = useState<string | null>(null);
@@ -494,6 +499,56 @@ function App() {
       if (data) setPartners(data);
     });
   }, []);
+
+  // Deep links coming from the concierge: ?concierge=<session> reopens the last
+  // carnet entry the concierge presented, ?brand=<name> opens that partner sheet.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const conciergeSession = params.get(CONCIERGE_SESSION_PARAM);
+    const brand = params.get('brand');
+
+    if (brand) {
+      pendingBrandRef.current = brand;
+      go('partners');
+      return;
+    }
+    if (conciergeSession) {
+      pendingConciergeEntry.current = true;
+      setConciergeReturn(conciergeSession);
+      go('carnet');
+    }
+  }, []);
+
+  useEffect(() => {
+    const brand = pendingBrandRef.current;
+    if (!brand || partners.length === 0) return;
+    pendingBrandRef.current = null;
+    openBrand(brand, findPartnerForBrand(brand));
+  }, [partners]);
+
+  useEffect(() => {
+    if (!pendingConciergeEntry.current || !conciergeReturn) return;
+    let active = true;
+    findPresentedEntry(conciergeReturn).then((entry) => {
+      if (!active || !entry) return;
+      pendingConciergeEntry.current = false;
+      const known = carnetEntries.find(e => e.id === entry.id) ?? photos.find(e => e.id === entry.id);
+      const detail: Photo = known ?? {
+        id: entry.id,
+        title: entry.title,
+        city: entry.city,
+        lat: 0,
+        lng: 0,
+        description: entry.description,
+        author: 'CELEC',
+        image_url: entry.image_url,
+        created_at: new Date().toISOString(),
+        detected_brands: entry.brands,
+      };
+      setCarnetDetail(detail);
+    });
+    return () => { active = false; };
+  }, [conciergeReturn, carnetEntries, photos]);
 
   const loadComments = useCallback(async (targetType: string, targetId: string) => {
     if (!supabase) return;
@@ -1076,6 +1131,11 @@ function App() {
                   <ArrowLeft size={14} /> {brandReturn}
                 </button>
               )}
+              {conciergeReturn && (
+                <a className="cm-concierge-back" href="/concierge">
+                  <ArrowLeft size={14} /> Revenir à la conversation
+                </a>
+              )}
               <button className="modal-x" onClick={closeAllOverlays}><X size={18} /></button>
               {(carnetDetail.image_url || carnetDetail.photo_images?.[0]?.image_url) && (
                 <div className="cm-hero">
@@ -1184,6 +1244,11 @@ function App() {
         {brandView && (
           <div className="overlay" onClick={closeAllOverlays}>
             <div className="carnet-modal" onClick={e => e.stopPropagation()}>
+              {conciergeReturn && (
+                <a className="cm-concierge-back" href="/concierge">
+                  <ArrowLeft size={14} /> Revenir à la conversation
+                </a>
+              )}
               <button className="modal-x" onClick={closeAllOverlays}><X size={18} /></button>
               {brandView.partner?.logo_url && (
                 <div className="cm-hero">

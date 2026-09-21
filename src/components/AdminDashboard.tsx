@@ -4,9 +4,10 @@ import {
   LayoutDashboard, MapPin, ArrowUpRight,
   Receipt, Search, Camera, Plus, Trash2,
   Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
-  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag
+  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { ConciergeTab } from '@/components/ConciergeTab';
 
 /* ── Types ── */
 
@@ -120,7 +121,7 @@ interface AdminDashboardProps {
 }
 
 type Section = 'communication' | 'commercial' | 'administratif';
-type SubTab = 'carnet' | 'partners' | 'overview' | 'clients' | 'requests' | 'invoices' | 'admin_docs';
+type SubTab = 'carnet' | 'partners' | 'concierge' | 'overview' | 'clients' | 'requests' | 'invoices' | 'admin_docs';
 
 const statusLabel: Record<string, string> = {
   new: 'Nouveau', to_call: 'A rappeler', in_progress: 'En cours',
@@ -141,6 +142,7 @@ const sectionSubTabs: Record<Section, { key: SubTab; label: string; icon: typeof
   communication: [
     { key: 'carnet', label: 'Carnet', icon: Camera },
     { key: 'partners', label: 'Partenaires', icon: Handshake },
+    { key: 'concierge', label: 'Concierge', icon: Bot },
   ],
   commercial: [
     { key: 'overview', label: 'Apercu', icon: LayoutDashboard },
@@ -470,6 +472,11 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
           {/* ── COMMUNICATION: Partenaires ── */}
           {!loading && subTab === 'partners' && (
             <PartnersTab partners={partnersList} onRefresh={loadData} />
+          )}
+
+          {/* ── COMMUNICATION: Concierge ── */}
+          {!loading && subTab === 'concierge' && (
+            <ConciergeTab />
           )}
 
           {/* ── ADMINISTRATIF ── */}

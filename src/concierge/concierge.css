@@ -556,6 +556,266 @@
   color: #1a1a1a;
 }
 
+/* ─── FLOW DES CARTES PRÉSENTÉES ─── */
+.concierge-main--flow {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 34px;
+  padding-top: 28px;
+}
+
+.concierge-main--flow .concierge-session-layout {
+  align-items: center;
+}
+
+.concierge-flow {
+  width: min(100%, 960px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: concierge-flow-in 0.35s ease;
+}
+
+@keyframes concierge-flow-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.concierge-flow-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+  padding-top: 18px;
+}
+
+.concierge-flow-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #999;
+}
+
+.concierge-flow-focus {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 650;
+  color: #8a5a16;
+  background: #fff7df;
+  border-radius: 999px;
+}
+
+.concierge-flow-empty {
+  padding: 18px 20px;
+  color: #8a8a8a;
+  font-size: 13px;
+  line-height: 1.55;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px dashed rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+}
+
+.concierge-flow-note {
+  padding: 0 4px;
+  color: #999;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.concierge-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ─── CARTE BILLET / MARQUE ─── */
+.cc-card {
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.04);
+  animation: cc-card-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.cc-card--open {
+  border-color: rgba(232, 51, 106, 0.28);
+  box-shadow: 0 10px 28px rgba(232, 51, 106, 0.1);
+}
+
+@keyframes cc-card-in {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cc-card-btn {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 10px 16px 10px 10px;
+  text-align: left;
+}
+
+.cc-media {
+  display: block;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f2efea;
+}
+
+.cc-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s ease;
+}
+
+.cc-card-btn:hover .cc-media img {
+  transform: scale(1.06);
+}
+
+.cc-media-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: #b3aa9e;
+}
+
+.cc-media-fallback--brand {
+  color: #e8336a;
+  background: rgba(232, 51, 106, 0.08);
+}
+
+.cc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cc-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #e8336a;
+}
+
+.cc-body strong {
+  color: #1a1a1a;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.cc-body em {
+  color: #888;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.cc-chevron {
+  color: #b9b9b9;
+  transition: transform 0.25s ease, color 0.2s;
+}
+
+.cc-chevron--up {
+  transform: rotate(180deg);
+  color: #e8336a;
+}
+
+.cc-detail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fbfaf8;
+  animation: cc-detail-in 0.25s ease;
+}
+
+@keyframes cc-detail-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.cc-detail p {
+  color: #6e6e6e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cc-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 9px 16px;
+  color: #fff;
+  background: #1a1a1a;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.cc-link:hover {
+  background: #e8336a;
+  transform: translateY(-1px);
+}
+
+.concierge-panel-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding-top: 12px;
+  color: #a0a0a0;
+  font-size: 11px;
+  line-height: 1.45;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+@media (max-width: 820px) {
+  .concierge-main--flow {
+    gap: 26px;
+  }
+
+  .concierge-card-list {
+    flex-direction: row;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    margin: 0 -16px;
+    padding: 2px 16px 12px;
+  }
+
+  .cc-card {
+    flex: 0 0 min(78vw, 300px);
+    scroll-snap-align: start;
+  }
+
+  .cc-detail {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
 /* ─── RESPONSIVE ─── */
 @media (max-width: 480px) {
   .concierge-header {
@@ -602,4 +862,17 @@
   .concierge-active {
     padding-top: 28px;
   }
+}
+
+.concierge-start-btn:disabled {
+  cursor: progress;
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
+
+.concierge-start-btn:disabled:hover {
+  transform: none;
+  box-shadow: none;
+  background: #1a1a1a;
 }

@@ -6,3 +6,9 @@ verify_jwt = false
 
 [functions.realtime-session]
 verify_jwt = false
+
+[functions.concierge-realtime]
+verify_jwt = false
+
+[functions.concierge-presence]
+verify_jwt = false

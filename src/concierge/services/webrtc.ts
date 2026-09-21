@@ -18,6 +18,7 @@ export async function createRealtimeSession(
   localStream: MediaStream,
   onDataMessage: (msg: DataChannelMessage) => void,
   onConnectionStateChange: (state: RTCPeerConnectionState) => void,
+  conversationId: string | null = null,
 ): Promise<WebRTCSession> {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -78,14 +79,14 @@ export async function createRealtimeSession(
     throw new Error('No SDP offer generated');
   }
 
-  const response = await fetch(`${supabaseUrl}/functions/v1/realtime-session`, {
+  const response = await fetch(`${supabaseUrl}/functions/v1/concierge-realtime`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       apikey: anonKey,
       Authorization: `Bearer ${anonKey}`,
     },
-    body: JSON.stringify({ sdp: offer.sdp }),
+    body: JSON.stringify({ sdp: offer.sdp, conversation_id: conversationId ?? undefined }),
   });
 
   if (!response.ok) {

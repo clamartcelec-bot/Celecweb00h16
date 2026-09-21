@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,19 +13,33 @@ import {
   PhoneOff,
   RotateCcw,
   UserRound,
+  Wallet,
 } from 'lucide-react';
 import { useRealtimeSession, type ToolCall } from '../hooks/useRealtimeSession';
 import { useConversationTimer } from '../hooks/useConversationTimer';
 import { formatConciergeContext, loadConciergeContext, type ConciergeContext } from '../services/context';
+import {
+  EMPTY_KNOWLEDGE,
+  findBrand,
+  findEntries,
+  loadConciergeKnowledge,
+  searchCarnet,
+  type ConciergeKnowledge,
+} from '../services/knowledge';
+import { markPresentedEntries } from '../services/presence';
+import { loadConciergeSettings, DEFAULT_CONCIERGE_SETTINGS, type ConciergeSettings } from '../services/config';
 import { submitConciergeLead } from '../services/lead';
+import { carnetUrlForSession, endConciergeSession, startConciergeSession } from '@/lib/conciergeSession';
 import {
   CATEGORY_LABELS,
   EMPTY_CONCIERGE_DRAFT,
   URGENCY_LABELS,
+  type ConciergeCard,
   type ConciergeDraft,
   type RequestCategory,
   type RequestUrgency,
 } from '../types';
+import { CardChip } from './CardChip';
 import '../concierge.css';
 
 const TOPICS: Array<{ label: string; category: RequestCategory }> = [
@@ -43,6 +57,12 @@ function booleanArg(args: Record<string, unknown>, key: string) {
   return typeof args[key] === 'boolean' ? args[key] : undefined;
 }
 
+function stringArrayArg(args: Record<string, unknown>, key: string, max = 6) {
+  const value = args[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string').slice(0, max);
+}
+
 function categoryArg(value: string | undefined): RequestCategory | undefined {
   return value && value in CATEGORY_LABELS ? value as RequestCategory : undefined;
 }
@@ -51,7 +71,13 @@ function urgencyArg(value: string | undefined): RequestUrgency | undefined {
   return value && value in URGENCY_LABELS ? value as RequestUrgency : undefined;
 }
 
+function brandCardHref(name: string) {
+  return `/partners?brand=${encodeURIComponent(name)}`;
+}
+
 export function ConciergePage() {
+  const [conversationId, setConversationId] = useState<string | null>(null);
+
   const {
     status,
     error,
@@ -65,34 +91,61 @@ export function ConciergePage() {
     onToolCall,
     injectSystemMessage,
     requestResponse,
-  } = useRealtimeSession();
+  } = useRealtimeSession(conversationId);
 
   const [draft, setDraft] = useState<ConciergeDraft>(EMPTY_CONCIERGE_DRAFT);
   const [clientContext, setClientContext] = useState<ConciergeContext | null>(null);
+  const [knowledgeReady, setKnowledgeReady] = useState(false);
+  const [settings, setSettings] = useState<ConciergeSettings>(DEFAULT_CONCIERGE_SETTINGS);
+  const [cards, setCards] = useState<ConciergeCard[]>([]);
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
+  const [appointmentMode, setAppointmentMode] = useState(false);
   const [submissionState, setSubmissionState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+
   const hasInjectedWarningRef = useRef(false);
   const hasStartedGreetingRef = useRef(false);
   const hasSubmittedRef = useRef(false);
   const selectedTopicRef = useRef<string>();
   const draftRef = useRef<ConciergeDraft>(EMPTY_CONCIERGE_DRAFT);
+  const settingsRef = useRef<ConciergeSettings>(DEFAULT_CONCIERGE_SETTINGS);
+  const knowledgeRef = useRef<ConciergeKnowledge>(EMPTY_KNOWLEDGE);
+  const sessionIdRef = useRef<string | null>(null);
+  const shownCardIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let active = true;
-    loadConciergeContext()
-      .then((context) => {
-        if (!active || !context) return;
-        setClientContext(context);
-        setDraft((current) => {
-          const next = {
-            ...current,
-            firstName: current.firstName || context.firstName || '',
-            phone: current.phone || context.phone || '',
-          };
-          draftRef.current = next;
-          return next;
+    Promise.all([loadConciergeContext(), loadConciergeSettings(), loadConciergeKnowledge()])
+      .then(([context, loadedSettings, loadedKnowledge]) => {
+        if (!active) return;
+        settingsRef.current = loadedSettings;
+        knowledgeRef.current = loadedKnowledge;
+        setSettings(loadedSettings);
+        setKnowledgeReady(true);
+
+        setClientContext({
+          ...(context ?? {}),
+          firstName: context?.firstName,
+          phone: context?.phone,
+          previousRequests: context?.previousRequests,
+          knowledge: loadedKnowledge,
         });
+
+        if (context) {
+          setDraft((current) => {
+            const next = {
+              ...current,
+              firstName: current.firstName || context.firstName || '',
+              phone: current.phone || context.phone || '',
+            };
+            draftRef.current = next;
+            return next;
+          });
+        }
       })
-      .catch((contextError) => console.warn('Concierge context unavailable:', contextError));
+      .catch((contextError) => {
+        console.warn('Concierge context unavailable:', contextError);
+        setKnowledgeReady(true);
+      });
     return () => { active = false; };
   }, []);
 
@@ -102,6 +155,18 @@ export function ConciergePage() {
       draftRef.current = next;
       return next;
     });
+  }, []);
+
+  const pushCards = useCallback((incoming: ConciergeCard[]) => {
+    const fresh = incoming.filter((card) => !shownCardIdsRef.current.has(card.id));
+    if (!fresh.length) return;
+
+    fresh.forEach((card) => shownCardIdsRef.current.add(card.id));
+    setCards((current) => [...fresh, ...current].slice(0, 24));
+    setOpenCardId(fresh[0].id);
+
+    const entryIds = fresh.filter((card) => card.kind === 'carnet').map((card) => card.id);
+    if (entryIds.length) void markPresentedEntries(entryIds, sessionIdRef.current);
   }, []);
 
   const handleToolCall = useCallback(async (tool: ToolCall) => {
@@ -141,6 +206,96 @@ export function ConciergePage() {
         ...(nextStep !== undefined && { nextStep }),
       });
       sendFunctionResult(tool.callId, { success: true, message: 'Fiche de demande mise à jour.' });
+      return;
+    }
+
+    if (tool.name === 'search_carnet') {
+      const query = stringArg(args, 'query') ?? '';
+      const found = searchCarnet(knowledgeRef.current, query, 3);
+      sendFunctionResult(tool.callId, {
+        success: true,
+        results: found.map((entry) => ({
+          id: entry.id,
+          titre: entry.title,
+          commune: entry.city || 'commune non précisée',
+          marques: entry.brands.join(', ') || 'aucune marque identifiée',
+          detail: entry.description.slice(0, 220),
+        })),
+        message: found.length
+          ? 'Présente ces billets au client puis affiche-les avec show_carnet_entries.'
+          : 'Aucun billet publié ne correspond. Dis-le simplement au client, sans rien afficher.',
+      });
+      return;
+    }
+
+    if (tool.name === 'show_carnet_entries') {
+      const ids = stringArrayArg(args, 'entry_ids');
+      const entries = findEntries(knowledgeRef.current, ids);
+      const limited = entries.slice(0, Math.max(1, settingsRef.current.max_cards || 3));
+
+      pushCards(limited.map((entry) => ({
+        id: entry.id,
+        kind: 'carnet',
+        title: entry.title,
+        subtitle: [entry.city, entry.brands.slice(0, 2).join(' · ')].filter(Boolean).join(' — '),
+        imageUrl: entry.image_url,
+      })));
+
+      sendFunctionResult(tool.callId, {
+        success: true,
+        affiche: limited.length,
+        message: limited.length
+          ? 'Billets affichés à l’écran. Commente-les à l’oral.'
+          : 'Ces billets ne sont pas disponibles. N’invente rien et poursuis la conversation.',
+      });
+      return;
+    }
+
+    if (tool.name === 'show_brand') {
+      if (!settingsRef.current.show_brand_cards) {
+        sendFunctionResult(tool.callId, {
+          success: false,
+          message: 'L’affichage des marques est désactivé. Réponds uniquement à l’oral.',
+        });
+        return;
+      }
+
+      const requested = stringArg(args, 'brand') ?? '';
+      const brand = findBrand(knowledgeRef.current, requested);
+      if (!brand) {
+        sendFunctionResult(tool.callId, {
+          success: false,
+          message: 'Cette marque ne fait pas partie du carnet publié. Ne l’affiche pas et ne l’invente pas.',
+        });
+        return;
+      }
+
+      pushCards([{
+        id: `brand:${brand.name}`,
+        kind: 'brand',
+        title: brand.name,
+        subtitle: brand.partnerName ? 'Partenaire CELEC' : `${brand.count} intervention(s) au carnet`,
+        imageUrl: '',
+        brandName: brand.name,
+      }]);
+
+      sendFunctionResult(tool.callId, {
+        success: true,
+        marque: brand.name,
+        fiche_partenaire: Boolean(brand.partnerName),
+        message: 'Fiche marque affichée à l’écran.',
+      });
+      return;
+    }
+
+    if (tool.name === 'begin_appointment_flow') {
+      setAppointmentMode(true);
+      sendFunctionResult(tool.callId, {
+        success: true,
+        mode: 'rendez-vous',
+        message: 'Mode rendez-vous activé. Recentre la conversation et ne traite plus les questions sur le site.',
+      });
+      requestResponse();
       return;
     }
 
@@ -210,7 +365,7 @@ export function ConciergePage() {
         });
       }
     }
-  }, [sendFunctionResult, updateDraft]);
+  }, [pushCards, requestResponse, sendFunctionResult, updateDraft]);
 
   useEffect(() => {
     onToolCall(handleToolCall);
@@ -222,12 +377,12 @@ export function ConciergePage() {
       hasStartedGreetingRef.current = false;
       return;
     }
-    if (hasStartedGreetingRef.current) return;
+    if (hasStartedGreetingRef.current || !knowledgeReady) return;
 
     hasStartedGreetingRef.current = true;
     injectSystemMessage(formatConciergeContext(clientContext, selectedTopicRef.current));
     requestResponse();
-  }, [clientContext, injectSystemMessage, requestResponse, status]);
+  }, [clientContext, injectSystemMessage, knowledgeReady, requestResponse, status]);
 
   const onApproachingEnd = useCallback(() => {
     if (!hasInjectedWarningRef.current) {
@@ -238,7 +393,12 @@ export function ConciergePage() {
     }
   }, [injectSystemMessage]);
 
-  const onCutoff = useCallback(() => stop(), [stop]);
+  const handleEnd = useCallback(() => {
+    stop();
+    endConciergeSession(sessionIdRef.current);
+  }, [stop]);
+
+  const onCutoff = useCallback(() => handleEnd(), [handleEnd]);
   const timer = useConversationTimer(status === 'connected', onApproachingEnd, onCutoff);
 
   useEffect(() => {
@@ -249,6 +409,12 @@ export function ConciergePage() {
     selectedTopicRef.current = topic?.label;
     hasSubmittedRef.current = false;
     setSubmissionState('idle');
+    setCards([]);
+    setOpenCardId(null);
+    setAppointmentMode(false);
+    shownCardIdsRef.current.clear();
+    sessionIdRef.current = startConciergeSession();
+    setConversationId(sessionIdRef.current);
     const initialDraft: ConciergeDraft = {
       ...EMPTY_CONCIERGE_DRAFT,
       firstName: clientContext?.firstName || '',
@@ -261,9 +427,49 @@ export function ConciergePage() {
   };
 
   const handleGoBack = () => {
-    stop();
+    handleEnd();
     window.location.href = '/';
   };
+
+  const toggleCard = (cardId: string) => {
+    setOpenCardId((current) => (current === cardId ? null : cardId));
+  };
+
+  const inSession = status === 'connected' || status === 'ended';
+  const hasFlow = cards.length > 0 || Boolean(draft.summary) || submissionState !== 'idle';
+
+  const flow = useMemo(() => (
+    <div className="concierge-flow">
+      <div className="concierge-flow-head">
+        <span className="concierge-flow-label">Ce que je vous montre</span>
+        {appointmentMode && <span className="concierge-flow-focus">Mode rendez-vous</span>}
+      </div>
+      {cards.length === 0 ? (
+        <p className="concierge-flow-empty">
+          Les éléments du carnet et les marques apparaîtront ici au fil de la conversation, dès qu’ils éclairent une réponse.
+        </p>
+      ) : (
+        <div className="concierge-card-list">
+          {cards.map((card) => (
+            <CardChip
+              key={card.id}
+              card={card}
+              expanded={openCardId === card.id}
+              detailHref={card.kind === 'carnet'
+                ? carnetUrlForSession(sessionIdRef.current)
+                : brandCardHref(card.brandName ?? card.title)}
+              onToggle={() => toggleCard(card.id)}
+            />
+          ))}
+        </div>
+      )}
+      {status === 'ended' && cards.length > 0 && (
+        <p className="concierge-flow-note">
+          L’appel est terminé. Les billets présentés restent marqués dans le carnet jusqu’à votre prochaine visite.
+        </p>
+      )}
+    </div>
+  ), [appointmentMode, cards, openCardId, status]);
 
   return (
     <div className="concierge-page">
@@ -275,50 +481,75 @@ export function ConciergePage() {
         <div className="concierge-header-spacer" />
       </header>
 
-      <main className="concierge-main">
-        {status === 'idle' && <IdleView onStart={handleStart} />}
-        {status === 'requesting-mic' && <ConnectingView label="Autorisation du micro..." />}
-        {status === 'connecting' && <ConnectingView label="Connexion en cours..." />}
-        {status === 'connected' && (
-          <div className="concierge-session-layout">
-            <ActiveView
-              timer={timer}
-              isMuted={isMuted}
-              isUserSpeaking={isUserSpeaking}
-              isAssistantSpeaking={isAssistantSpeaking}
-              onToggleMute={toggleMute}
-              onEnd={stop}
-            />
-            <RequestPanel draft={draft} submissionState={submissionState} />
+      <main className={`concierge-main ${inSession && hasFlow ? 'concierge-main--flow' : ''}`}>
+        {status === 'idle' && !settings.enabled && (
+          <div className="concierge-idle">
+            <div className="concierge-greeting">
+              <h1>Bonjour.</h1>
+              <p>Le concierge numérique est momentanément indisponible.</p>
+            </div>
+            <a className="concierge-back-btn" href="/#contact-box">Nous écrire</a>
           </div>
         )}
+
+        {status === 'idle' && settings.enabled && (
+        <IdleView greeting={settings.greeting} knowledgeReady={knowledgeReady} onStart={handleStart} />
+      )}
+        {status === 'requesting-mic' && <ConnectingView label="Autorisation du micro..." />}
+        {status === 'connecting' && <ConnectingView label="Connexion en cours..." />}
+
+        {status === 'connected' && (
+          <>
+            <div className="concierge-session-layout">
+              <ActiveView
+                timer={timer}
+                isMuted={isMuted}
+                isUserSpeaking={isUserSpeaking}
+                isAssistantSpeaking={isAssistantSpeaking}
+                onToggleMute={toggleMute}
+                onEnd={handleEnd}
+              />
+              <RequestPanel draft={draft} submissionState={submissionState} />
+            </div>
+            {flow}
+          </>
+        )}
+
         {status === 'error' && <ErrorView error={error} onRetry={() => handleStart()} />}
+
         {status === 'ended' && (
-          draft.summary ? (
+          <>
             <div className="concierge-session-layout">
               <EndedView draft={draft} onRestart={() => handleStart()} onBack={handleGoBack} />
               <RequestPanel draft={draft} submissionState={submissionState} />
             </div>
-          ) : (
-            <EndedView draft={draft} onRestart={() => handleStart()} onBack={handleGoBack} />
-          )
+            {flow}
+          </>
         )}
       </main>
     </div>
   );
 }
 
-function IdleView({ onStart }: { onStart: (topic?: { label: string; category: RequestCategory }) => void }) {
+function IdleView({
+  greeting,
+  knowledgeReady,
+  onStart,
+}: {
+  greeting: string;
+  knowledgeReady: boolean;
+  onStart: (topic?: { label: string; category: RequestCategory }) => void;
+}) {
   return (
     <div className="concierge-idle">
       <div className="concierge-greeting">
         <h1>Bonjour.</h1>
-        <p>Comment pouvons-nous vous aider ?</p>
+        <p>{greeting}</p>
       </div>
 
-      <button onClick={() => onStart()} className="concierge-start-btn">
+      <button onClick={() => onStart()} className="concierge-start-btn" disabled={!knowledgeReady}>
         <Mic size={24} />
-        Parler à CELEC
+        {knowledgeReady ? 'Parler à CELEC' : 'Préparation du carnet…'}
       </button>
 
       <div className="concierge-quick-topics">
@@ -330,7 +561,7 @@ function IdleView({ onStart }: { onStart: (topic?: { label: string; category: Re
       </div>
 
       <p className="concierge-disclosure">
-        Vous allez parler avec le concierge numérique de CELEC. La conversation peut être retranscrite afin de transmettre correctement votre demande à l'équipe.
+        Vous allez parler avec le concierge numérique de CELEC. Il s’appuie sur notre carnet d’interventions publié et sur nos partenaires pour vous répondre, et affiche à l’écran les éléments dont il parle.
       </p>
     </div>
   );
@@ -388,7 +619,7 @@ function ActiveView({ timer, isMuted, isUserSpeaking, isAssistantSpeaking, onTog
         </button>
         <button onClick={onEnd} className="concierge-end-btn">
           <PhoneOff size={20} />
-          Terminer
+          Raccrocher
         </button>
       </div>
     </div>
@@ -455,6 +686,12 @@ function RequestPanel({
         </div>
       )}
       {draft.photoNeeded && <p className="concierge-panel-photo">Une photo pourra être demandée pour préciser le diagnostic.</p>}
+      {!draft.summary && submissionState === 'idle' && (
+        <p className="concierge-panel-hint">
+          <Wallet size={13} />
+          La fiche se remplit au fil de la conversation. Rien n’est transmis sans votre accord.
+        </p>
+      )}
     </aside>
   );
 }

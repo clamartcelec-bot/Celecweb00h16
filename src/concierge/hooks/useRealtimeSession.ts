@@ -16,7 +16,7 @@ export interface ToolCall {
   callId: string;
 }
 
-export function useRealtimeSession() {
+export function useRealtimeSession(conversationId: string | null) {
   const [status, setStatus] = useState<ConnectionStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -125,6 +125,7 @@ export function useRealtimeSession() {
         stream,
         handleDataMessage,
         handleConnectionStateChange,
+        conversationId,
       );
       sessionRef.current = session;
       setStatus('connected');
@@ -133,7 +134,7 @@ export function useRealtimeSession() {
       setError(e instanceof Error ? e.message : 'Erreur de connexion');
       setStatus('error');
     }
-  }, [handleDataMessage, handleConnectionStateChange]);
+  }, [conversationId, handleDataMessage, handleConnectionStateChange]);
 
   const stop = useCallback(() => {
     closeSession(sessionRef.current);

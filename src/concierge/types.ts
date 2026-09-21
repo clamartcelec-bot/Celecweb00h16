@@ -1,6 +1,15 @@
 export type RequestCategory = 'depannage' | 'travaux' | 'projet' | 'question';
 export type RequestUrgency = 'normale' | 'rapide' | 'urgente';
 
+export interface ConciergeCard {
+  id: string;
+  kind: 'carnet' | 'brand';
+  title: string;
+  subtitle: string;
+  imageUrl: string;
+  brandName?: string;
+}
+
 export interface ConciergeDraft {
   firstName: string;
   phone: string;

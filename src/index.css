@@ -861,3 +861,21 @@ input,textarea{font:inherit;color:var(--text)}
   .partners-bento{grid-template-columns:1fr}
   .pb-lg,.pb-wide{grid-column:span 1}
 }
+
+/* ─── RETOUR VERS LE CONCIERGE DEPUIS UN BILLET ─── */
+.cm-concierge-back{display:inline-flex;align-items:center;gap:8px;margin:14px 0 0 14px;padding:8px 16px;font-size:12px;font-weight:650;color:#fff;background:#e8336a;border-radius:999px;text-decoration:none;transition:background .2s,transform .2s}
+.cm-concierge-back:hover{background:#cf2d5e;transform:translateX(-2px)}
+html.dark .cm-concierge-back{background:#e8336a}
+
+/* ─── ADMIN: ONGLET CONCIERGE ─── */
+.cgs-knowledge{display:flex;align-items:flex-start;gap:8px;padding:12px 14px;margin-bottom:16px;color:#8a5a16;background:#fff7df;border:1px solid #f2e2b8;border-radius:12px;font-size:12px;line-height:1.5}
+.cgs-knowledge svg{flex-shrink:0;margin-top:1px}
+.cgs-switch{display:flex;align-items:flex-start;gap:10px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;cursor:pointer}
+.cgs-switch input{margin-top:3px;width:16px;height:16px;accent-color:#e8336a;flex-shrink:0}
+.cgs-switch span{display:flex;flex-direction:column;gap:3px}
+.cgs-switch strong{font-size:13px;font-weight:600;color:var(--text)}
+.cgs-switch em{font-size:11.5px;font-style:normal;color:var(--muted);line-height:1.45}
+.cgs-site-info{min-height:240px;font-family:var(--mono);font-size:12px;line-height:1.6}
+.cgs-note{display:flex;align-items:flex-start;gap:8px;padding:12px 14px;color:var(--muted);background:var(--bg2);border-radius:12px;font-size:11.5px;line-height:1.5}
+.cgs-note svg{flex-shrink:0;margin-top:1px;color:#e8336a}
+.ai-last-update{display:flex;align-items:center;gap:6px}

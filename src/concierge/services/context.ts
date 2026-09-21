@@ -1,9 +1,11 @@
 import { supabase } from '@/lib/supabase';
+import { formatConciergeKnowledge, type ConciergeKnowledge } from './knowledge';
 
 export interface ConciergeContext {
   firstName?: string;
   phone?: string;
   previousRequests?: string[];
+  knowledge?: ConciergeKnowledge;
 }
 
 function compact(value: string, max = 320) {
@@ -55,6 +57,10 @@ export function formatConciergeContext(context: ConciergeContext | null, topic?:
   if (context?.previousRequests?.length) {
     lines.push('Contexte récent du client, à utiliser seulement s’il est pertinent :');
     context.previousRequests.forEach((request) => lines.push(`- ${request}`));
+  }
+
+  if (context?.knowledge) {
+    lines.push('', formatConciergeKnowledge(context.knowledge));
   }
 
   lines.push('Accueille maintenant le client en une phrase et demande comment tu peux l’aider.');
