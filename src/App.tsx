@@ -30,6 +30,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  ArrowLeft,
+  Tag,
 } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -52,6 +54,7 @@ interface Photo {
   author: string;
   image_url: string;
   created_at: string;
+  detected_brands?: string[] | null;
   photo_images?: { id: string; image_url: string; caption: string | null; position: number }[];
 }
 
@@ -407,6 +410,8 @@ function App() {
   const [carnetLoading, setCarnetLoading] = useState(false);
   const [carnetHasMore, setCarnetHasMore] = useState(true);
   const [carnetDetail, setCarnetDetail] = useState<Photo | null>(null);
+  const [brandView, setBrandView] = useState<{ name: string; partner: Partner | null } | null>(null);
+  const [brandReturn, setBrandReturn] = useState<string | null>(null);
   const [mapSelectedCity, setMapSelectedCity] = useState<string | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
   const [contactCategory, setContactCategory] = useState<string | null>(null);
@@ -551,6 +556,43 @@ function App() {
   }, [view, carnetHasMore, loadCarnetPage]);
 
   const fmtDateShort = (d: string) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  // Brand names are compared loosely so a brand detected in a carnet always matches its
+  // partner sheet, whatever the spacing, accents or "&" / "and" spelling used.
+  const normalizeBrandName = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+
+  const findPartnerForBrand = (name: string) =>
+    partners.find(p => normalizeBrandName(p.name) === normalizeBrandName(name)) ?? null;
+
+  const openBrand = (name: string, partner: Partner | null) => {
+    setCarnetDetail(null);
+    setBrandReturn(null);
+    setBrandView({ name, partner });
+    if (partner) loadComments('partner', partner.id);
+    else setComments([]);
+  };
+
+  const openCarnetDetail = (entry: Photo, fromBrand?: string) => {
+    setBrandView(null);
+    setBrandReturn(fromBrand ?? null);
+    setCarnetDetail(entry);
+  };
+
+  const closeAllOverlays = () => {
+    setCarnetDetail(null);
+    setBrandView(null);
+    setBrandReturn(null);
+    setComments([]);
+    setNewComment('');
+    setNewRating(0);
+  };
+
+  const brandEntries = brandView
+    ? photos.filter(p =>
+        (p.detected_brands ?? []).some(b => normalizeBrandName(b) === normalizeBrandName(brandView.name))
+      )
+    : [];
 
   const go = (v: View) => {
     setView(v);
@@ -977,7 +1019,7 @@ function App() {
                   <article
                     className={`cn-card ${sizeClass}`}
                     key={entry.id}
-                    onClick={() => setCarnetDetail(entry)}
+                    onClick={() => openCarnetDetail(entry)}
                   >
                     {mainImg
                       ? <img src={mainImg} alt={entry.title} loading="lazy" className="cn-img" />
@@ -986,6 +1028,16 @@ function App() {
                       {entry.city && <span className="cn-city"><MapPin size={10} /> {entry.city}</span>}
                       <h3>{entry.title}</h3>
                       {desc && <p className="cn-desc">{truncated ? desc.slice(0, 90) + '...' : desc}</p>}
+                      {(entry.detected_brands?.length ?? 0) > 0 && (
+                        <div className="cn-brands">
+                          {entry.detected_brands!.slice(0, 2).map(b => (
+                            <span className="cn-brand" key={b}>{b}</span>
+                          ))}
+                          {entry.detected_brands!.length > 2 && (
+                            <span className="cn-brand cn-brand-more">+{entry.detected_brands!.length - 2}</span>
+                          )}
+                        </div>
+                      )}
                       <div className="cn-meta">
                         <span>{entry.author || 'CELEC'}</span>
                         <span>&middot;</span>
@@ -1009,9 +1061,22 @@ function App() {
         )}
 
         {carnetDetail && (
-          <div className="overlay" onClick={() => { setCarnetDetail(null); setComments([]); setNewComment(''); setNewRating(0); }}>
+          <div className="overlay" onClick={closeAllOverlays}>
             <div className="carnet-modal" onClick={e => e.stopPropagation()}>
-              <button className="modal-x" onClick={() => { setCarnetDetail(null); setComments([]); setNewComment(''); setNewRating(0); }}><X size={18} /></button>
+              {brandReturn && (
+                <button
+                  className="modal-back"
+                  onClick={() => {
+                    const name = brandReturn;
+                    setCarnetDetail(null);
+                    setBrandReturn(null);
+                    openBrand(name, findPartnerForBrand(name));
+                  }}
+                >
+                  <ArrowLeft size={14} /> {brandReturn}
+                </button>
+              )}
+              <button className="modal-x" onClick={closeAllOverlays}><X size={18} /></button>
               {(carnetDetail.image_url || carnetDetail.photo_images?.[0]?.image_url) && (
                 <div className="cm-hero">
                   <img src={carnetDetail.image_url || carnetDetail.photo_images![0].image_url} alt={carnetDetail.title} />
@@ -1026,6 +1091,22 @@ function App() {
                 </div>
                 <h2>{carnetDetail.title}</h2>
                 {carnetDetail.description && <p className="cm-desc">{carnetDetail.description}</p>}
+                {(carnetDetail.detected_brands?.length ?? 0) > 0 && (
+                  <div className="cm-brands-row">
+                    <span className="cm-brands-label"><Tag size={12} /> Marques detectees</span>
+                    <div className="cm-brands-tags">
+                      {carnetDetail.detected_brands!.map(b => (
+                        <button
+                          className={`cm-brand-tag ${findPartnerForBrand(b) ? 'linked' : ''}`}
+                          key={b}
+                          onClick={() => openBrand(b, findPartnerForBrand(b))}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {(carnetDetail.photo_images?.length ?? 0) > 1 && (
                   <div className="cm-gallery">
                     {carnetDetail.photo_images!.sort((a, b) => a.position - b.position).map(img => (
@@ -1081,7 +1162,7 @@ function App() {
               {partners.map((p, i) => {
                 const sizeClass = i % 5 === 0 ? 'pb-lg' : i % 5 === 2 ? 'pb-wide' : 'pb-md';
                 return (
-                  <article className={`pb-card ${sizeClass}`} key={p.id} onClick={() => { setCarnetDetail(null); loadComments('partner', p.id); }}>
+                  <article className={`pb-card ${sizeClass}`} key={p.id} onClick={() => openBrand(p.name, p)}>
                     {p.logo_url
                       ? <img src={p.logo_url} alt={p.name} className="pb-logo" />
                       : <div className="pb-logo-placeholder"><Handshake size={32} /></div>}
@@ -1095,57 +1176,82 @@ function App() {
             </div>
             {partners.length === 0 && <p className="carnet-end">Aucun partenaire pour le moment.</p>}
 
-            {/* Partner detail with comments - shown when comments loaded and no carnet detail */}
-            {comments.length > 0 && !carnetDetail && (() => {
-              const targetId = comments[0]?.target_id;
-              const partner = partners.find(p => p.id === targetId);
-              if (!partner) return null;
-              return (
-                <div className="overlay" onClick={() => { setComments([]); setNewComment(''); setNewRating(0); }}>
-                  <div className="carnet-modal" onClick={e => e.stopPropagation()}>
-                    <button className="modal-x" onClick={() => { setComments([]); setNewComment(''); setNewRating(0); }}><X size={18} /></button>
-                    {partner.logo_url && (
-                      <div className="cm-hero pb-modal-logo">
-                        <img src={partner.logo_url} alt={partner.name} />
-                      </div>
-                    )}
-                    <div className="cm-body">
-                      <h2>{partner.name}</h2>
-                      {partner.description && <p className="cm-desc">{partner.description}</p>}
-                      <div className="cm-comments">
-                        <h3><MessageCircle size={16} /> Avis ({comments.length})</h3>
-                        <div className="cm-comment-list">
-                          {comments.map(c => (
-                            <div className="cm-comment" key={c.id}>
-                              <div className="cm-comment-head">
-                                <strong>{c.author_name}</strong>
-                                <span>{fmtDateShort(c.created_at)}</span>
-                                {c.rating && <span className="cm-stars">{'\u2605'.repeat(c.rating)}{'\u2606'.repeat(5 - c.rating)}</span>}
-                              </div>
-                              <p>{c.content}</p>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="cm-add-comment">
-                          <div className="cm-rating-row">
-                            {[1,2,3,4,5].map(s => (
-                              <button key={s} className={`cm-star ${s <= newRating ? 'active' : ''}`} onClick={() => setNewRating(s === newRating ? 0 : s)}>
-                                <Star size={16} />
-                              </button>
-                            ))}
-                          </div>
-                          <textarea className="field cm-comment-input" placeholder={t.writeComment} value={newComment} onChange={e => setNewComment(e.target.value)} rows={2} />
-                          <button className="btn-pink cm-submit" onClick={() => submitComment('partner', partner.id)} disabled={commentSubmitting || !newComment.trim()}>
-                            {t.submitReview}
-                          </button>
-                        </div>
-                      </div>
+          </section>
+        )}
+
+        {/* Brand sheet - rendered at page level so it opens from a carnet as well as
+            from the Partners page */}
+        {brandView && (
+          <div className="overlay" onClick={closeAllOverlays}>
+            <div className="carnet-modal" onClick={e => e.stopPropagation()}>
+              <button className="modal-x" onClick={closeAllOverlays}><X size={18} /></button>
+              {brandView.partner?.logo_url && (
+                <div className="cm-hero">
+                  <img src={brandView.partner.logo_url} alt={brandView.name} />
+                </div>
+              )}
+              <div className="cm-body">
+                <h2>{brandView.name}</h2>
+                {brandView.partner?.description
+                  ? <p className="cm-desc">{brandView.partner.description}</p>
+                  : <p className="cm-desc cm-brand-note">Marque rencontree sur le terrain, sans fiche partenaire pour le moment.</p>}
+
+                <div className="cm-brand-related">
+                  <h3><Camera size={16} /> Carnets lies a cette marque ({brandEntries.length})</h3>
+                  {brandEntries.length > 0 ? (
+                    <div className="cm-brand-entries">
+                      {brandEntries.map(e => (
+                        <button className="cm-brand-entry" key={e.id} onClick={() => openCarnetDetail(e, brandView.name)}>
+                          {e.image_url
+                            ? <img src={e.image_url} alt={e.title} loading="lazy" />
+                            : <span className="cm-brand-entry-ph"><Camera size={18} /></span>}
+                          <span className="cm-brand-entry-body">
+                            <strong>{e.title}</strong>
+                            <em>{e.city || 'CELEC'} &middot; {fmtDateShort(e.created_at)}</em>
+                          </span>
+                        </button>
+                      ))}
                     </div>
+                  ) : (
+                    <p className="cm-brand-empty">Aucun carnet ne mentionne encore cette marque.</p>
+                  )}
+                </div>
+
+                <div className="cm-comments">
+                  <h3><MessageCircle size={16} /> Avis ({comments.length})</h3>
+                  <div className="cm-comment-list">
+                    {comments.map(c => (
+                      <div className="cm-comment" key={c.id}>
+                        <div className="cm-comment-head">
+                          <strong>{c.author_name}</strong>
+                          <span>{fmtDateShort(c.created_at)}</span>
+                          {c.rating && <span className="cm-stars">{'\u2605'.repeat(c.rating)}{'\u2606'.repeat(5 - c.rating)}</span>}
+                        </div>
+                        <p>{c.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="cm-add-comment">
+                    <div className="cm-rating-row">
+                      {[1,2,3,4,5].map(s => (
+                        <button key={s} className={`cm-star ${s <= newRating ? 'active' : ''}`} onClick={() => setNewRating(s === newRating ? 0 : s)}>
+                          <Star size={16} />
+                        </button>
+                      ))}
+                    </div>
+                    <textarea className="field cm-comment-input" placeholder={t.writeComment} value={newComment} onChange={e => setNewComment(e.target.value)} rows={2} />
+                    <button
+                      className="btn-pink cm-submit"
+                      onClick={() => brandView.partner && submitComment('partner', brandView.partner.id)}
+                      disabled={commentSubmitting || !newComment.trim() || !brandView.partner}
+                    >
+                      {t.submitReview}
+                    </button>
                   </div>
                 </div>
-              );
-            })()}
-          </section>
+              </div>
+            </div>
+          </div>
         )}
 
         {view === 'blocktech' && (
