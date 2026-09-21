@@ -679,6 +679,28 @@ input,textarea{font:inherit;color:var(--text)}
 .crn-check input{width:16px;height:16px;accent-color:var(--pink)}
 .crn-save{display:flex;align-items:center;gap:6px;margin-top:16px;width:100%;justify-content:center}
 
+/* Brand picker (carnet form) */
+.brand-picker{display:flex;flex-direction:column;gap:6px}
+.brand-picker-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+.brand-picker-box{position:relative;border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:8px;transition:border-color .15s}
+.brand-picker-box:focus-within{border-color:var(--pink)}
+.brand-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.brand-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:4px 6px 4px 10px;border-radius:16px;background:var(--bg2);border:1px solid var(--border);color:var(--text)}
+.brand-chip.linked{background:rgba(232,51,106,.09);border-color:rgba(232,51,106,.4);color:var(--pink)}
+.brand-chip.linked svg{opacity:.8}
+.brand-chip-x{display:grid;place-items:center;width:16px;height:16px;border-radius:50%;color:inherit;opacity:.55;transition:opacity .15s,background .15s}
+.brand-chip-x:hover{opacity:1;background:rgba(0,0,0,.08)}
+.brand-input-row{display:flex;align-items:center;gap:7px;padding:3px 4px}
+.brand-input-icon{color:var(--muted);flex-shrink:0}
+.brand-input{flex:1;border:none;outline:none;background:transparent;font-size:13px;color:var(--text);font-family:inherit}
+.brand-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 28px rgba(0,0,0,.14);z-index:30;overflow:hidden;max-height:230px;overflow-y:auto}
+.brand-option{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:9px 12px;font-size:13px;color:var(--text);text-align:left;transition:background .12s}
+.brand-option:hover{background:var(--bg2)}
+.brand-option-name{font-weight:500}
+.brand-option-tag{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.4px;padding:3px 8px;border-radius:20px;background:var(--bg2);border:1px solid var(--border);color:var(--muted);flex-shrink:0}
+.brand-option-tag.linked{background:rgba(232,51,106,.1);border-color:rgba(232,51,106,.35);color:var(--pink)}
+.brand-picker-hint{font-size:11px;color:var(--muted);line-height:1.45}
+
 /* AI settings */
 .ai-settings{}
 .ai-settings-head{display:flex;gap:12px;margin-bottom:20px;align-items:flex-start}

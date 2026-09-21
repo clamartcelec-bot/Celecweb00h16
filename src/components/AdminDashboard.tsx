@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MapPin, ArrowUpRight,
   Receipt, Search, Camera, Plus, Trash2,
   Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
-  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft
+  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -464,7 +464,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
 
           {/* ── COMMUNICATION: Carnet ── */}
           {!loading && subTab === 'carnet' && (
-            <CarnetTab photos={photos} onRefresh={loadData} />
+            <CarnetTab photos={photos} partners={partnersList} onRefresh={loadData} />
           )}
 
           {/* ── COMMUNICATION: Partenaires ── */}
@@ -715,11 +715,17 @@ interface PhotoForm {
   description: string;
   published: boolean;
   date: string;
+  brands: string[];
 }
 
-const emptyForm: PhotoForm = { title: '', author: '', city: '', cityLat: 0, cityLng: 0, description: '', published: true, date: new Date().toISOString().slice(0, 10) };
+const emptyForm: PhotoForm = { title: '', author: '', city: '', cityLat: 0, cityLng: 0, description: '', published: true, date: new Date().toISOString().slice(0, 10), brands: [] };
 
-function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () => Promise<void> }) {
+// Brand names are matched loosely so a typo in spacing, accents or "&" still links the
+// carnet entry to the right partner sheet.
+const normalizeBrandName = (s: string) =>
+  s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+
+function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partners: PartnerRow[]; onRefresh: () => Promise<void> }) {
   const [mode, setMode] = useState<'list' | 'add' | 'edit' | 'settings'>('list');
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<PhotoForm>(emptyForm);
@@ -734,6 +740,9 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [expandedDraft, setExpandedDraft] = useState<string | null>(null);
   const [publishing, setPublishing] = useState<string | null>(null);
+  const [brandQuery, setBrandQuery] = useState('');
+  const [showBrandDropdown, setShowBrandDropdown] = useState(false);
+  const brandInputRef = useRef<HTMLDivElement>(null);
   const cityInputRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -752,10 +761,41 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
       if (cityInputRef.current && !cityInputRef.current.contains(e.target as Node)) {
         setShowCityDropdown(false);
       }
+      if (brandInputRef.current && !brandInputRef.current.contains(e.target as Node)) {
+        setShowBrandDropdown(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const partnerOfBrand = (name: string) =>
+    partners.find(p => normalizeBrandName(p.name) === normalizeBrandName(name)) ?? null;
+
+  const addBrand = (name: string) => {
+    const clean = name.trim();
+    if (!clean) return;
+    setForm(f =>
+      f.brands.some(b => normalizeBrandName(b) === normalizeBrandName(clean))
+        ? f
+        : { ...f, brands: [...f.brands, clean] }
+    );
+    setBrandQuery('');
+    setShowBrandDropdown(false);
+  };
+
+  const removeBrand = (name: string) =>
+    setForm(f => ({ ...f, brands: f.brands.filter(b => b !== name) }));
+
+  const brandSuggestions = (() => {
+    const q = normalizeBrandName(brandQuery);
+    const known = partners.map(p => p.name);
+    const pool = Array.from(new Set([...known, ...photos.flatMap(p => p.detected_brands ?? [])]));
+    return pool
+      .filter(n => !form.brands.some(b => normalizeBrandName(b) === normalizeBrandName(n)))
+      .filter(n => (q ? normalizeBrandName(n).includes(q) : true))
+      .slice(0, 8);
+  })();
 
   const handleCityInput = (val: string) => {
     setForm(f => ({ ...f, city: val, cityLat: 0, cityLng: 0 }));
@@ -778,12 +818,12 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
   };
 
   const openAdd = () => {
-    setForm(emptyForm); setFiles([]); setPreviews([]); setExistingImages([]); setEditId(null); setErr(''); setMode('add');
+    setForm(emptyForm); setFiles([]); setPreviews([]); setExistingImages([]); setEditId(null); setErr(''); setBrandQuery(''); setShowBrandDropdown(false); setMode('add');
   };
 
   const openEdit = (p: PhotoRow) => {
-    setForm({ title: p.title, author: p.author, city: p.city, cityLat: p.lat, cityLng: p.lng, description: p.description ?? '', published: p.published, date: p.created_at.slice(0, 10) });
-    setFiles([]); setPreviews([]); setExistingImages(p.images ?? []); setEditId(p.id); setErr(''); setMode('edit');
+    setForm({ title: p.title, author: p.author, city: p.city, cityLat: p.lat, cityLng: p.lng, description: p.description ?? '', published: p.published, date: p.created_at.slice(0, 10), brands: p.detected_brands ?? [] });
+    setFiles([]); setPreviews([]); setExistingImages(p.images ?? []); setEditId(p.id); setErr(''); setBrandQuery(''); setShowBrandDropdown(false); setMode('edit');
   };
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -820,7 +860,7 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
     if (!form.title.trim()) { setErr('Titre requis.'); return; }
     setSaving(true); setErr('');
     try {
-      const row = { title: form.title.trim(), author: form.author.trim(), city: form.city.trim(), lat: form.cityLat, lng: form.cityLng, description: form.description.trim() || null, published: form.published, created_at: new Date(form.date).toISOString() };
+      const row = { title: form.title.trim(), author: form.author.trim(), city: form.city.trim(), lat: form.cityLat, lng: form.cityLng, description: form.description.trim() || null, published: form.published, created_at: new Date(form.date).toISOString(), detected_brands: form.brands };
       let entryId = editId;
       if (mode === 'add') {
         const { data, error } = await supabase.from('photos').insert({ ...row, image_url: '', source: 'manual' }).select('id').single();
@@ -932,6 +972,54 @@ function CarnetTab({ photos, onRefresh }: { photos: PhotoRow[]; onRefresh: () =>
             <label><span>Date</span><input className="field" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
           </div>
           <label><span>Description</span><textarea className="field crn-textarea" placeholder="Ce qu'on a fait, ce qu'on a trouve..." value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+          <div className="brand-picker">
+            <span className="brand-picker-label">Marques</span>
+            <div className="brand-picker-box" ref={brandInputRef}>
+              {form.brands.length > 0 && (
+                <div className="brand-chips">
+                  {form.brands.map(b => {
+                    const linked = partnerOfBrand(b);
+                    return (
+                      <span className={`brand-chip ${linked ? 'linked' : ''}`} key={b} title={linked ? `Partenaire : ${linked.name}` : 'Marque sans fiche partenaire'}>
+                        {linked && <Handshake size={11} />}
+                        {b}
+                        <button type="button" className="brand-chip-x" onClick={() => removeBrand(b)}><X size={11} /></button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="brand-input-row">
+                <Tag size={14} className="brand-input-icon" />
+                <input
+                  className="brand-input"
+                  placeholder="Ajouter une marque..."
+                  value={brandQuery}
+                  onChange={e => { setBrandQuery(e.target.value); setShowBrandDropdown(true); }}
+                  onFocus={() => setShowBrandDropdown(true)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBrand(brandQuery); } }}
+                />
+              </div>
+              {showBrandDropdown && brandSuggestions.length > 0 && (
+                <div className="brand-dropdown">
+                  {brandSuggestions.map(n => {
+                    const linked = partnerOfBrand(n);
+                    return (
+                      <button type="button" className="brand-option" key={n} onClick={() => addBrand(n)}>
+                        <span className="brand-option-name">{n}</span>
+                        <span className={`brand-option-tag ${linked ? 'linked' : ''}`}>
+                          {linked ? <><Handshake size={10} /> Partenaire</> : 'Detectee'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <span className="brand-picker-hint">
+              Tapez pour rechercher, ou validez une marque libre avec Entree. Les marques liees a un partenaire portent un lien vers sa fiche sur le site.
+            </span>
+          </div>
           <label className="crn-check"><input type="checkbox" checked={form.published} onChange={e => setForm({ ...form, published: e.target.checked })} /><span>Publier sur le site</span></label>
         </div>
         {err && <p className="adm-msg adm-err">{err}</p>}
