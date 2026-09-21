@@ -12,6 +12,7 @@ export interface ConciergeCard {
 
 export interface ConciergeDraft {
   firstName: string;
+  lastName: string;
   phone: string;
   category: RequestCategory | '';
   summary: string;
@@ -22,10 +23,12 @@ export interface ConciergeDraft {
   callbackRequested: boolean;
   photoNeeded: boolean;
   nextStep: string;
+  attachments: string[];
 }
 
 export const EMPTY_CONCIERGE_DRAFT: ConciergeDraft = {
   firstName: '',
+  lastName: '',
   phone: '',
   category: '',
   summary: '',
@@ -36,6 +39,7 @@ export const EMPTY_CONCIERGE_DRAFT: ConciergeDraft = {
   callbackRequested: false,
   photoNeeded: false,
   nextStep: '',
+  attachments: [],
 };
 
 export const CATEGORY_LABELS: Record<RequestCategory, string> = {
@@ -50,3 +54,15 @@ export const URGENCY_LABELS: Record<RequestUrgency, string> = {
   rapide: 'Rapide',
   urgente: 'Urgente',
 };
+
+export function isDraftSubmittable(draft: ConciergeDraft) {
+  const phoneDigits = draft.phone.replace(/\D/g, '');
+  return Boolean(draft.firstName.trim()) && phoneDigits.length >= 8 && Boolean(draft.summary.trim());
+}
+
+export interface ConciergeMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  pending?: boolean;
+}

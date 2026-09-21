@@ -16,6 +16,12 @@ export interface ToolCall {
   callId: string;
 }
 
+export interface TranscriptEvent {
+  role: 'user' | 'assistant';
+  text: string;
+  final: boolean;
+}
+
 export function useRealtimeSession(conversationId: string | null) {
   const [status, setStatus] = useState<ConnectionStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +31,7 @@ export function useRealtimeSession(conversationId: string | null) {
 
   const sessionRef = useRef<WebRTCSession | null>(null);
   const toolCallHandlerRef = useRef<((tool: ToolCall) => void) | null>(null);
+  const transcriptHandlerRef = useRef<((event: TranscriptEvent) => void) | null>(null);
   const pendingArgsRef = useRef<Map<string, string>>(new Map());
   const processedCallsRef = useRef<Set<string>>(new Set());
 
@@ -51,6 +58,22 @@ export function useRealtimeSession(conversationId: string | null) {
     if (type === 'input_audio_buffer.speech_stopped') setIsUserSpeaking(false);
     if (type === 'response.output_audio.delta') setIsAssistantSpeaking(true);
     if (type === 'response.output_audio.done' || type === 'response.done') setIsAssistantSpeaking(false);
+
+    if (type === 'conversation.item.input_audio_transcription.delta') {
+      transcriptHandlerRef.current?.({ role: 'user', text: String(msg.delta ?? ''), final: false });
+    }
+
+    if (type === 'conversation.item.input_audio_transcription.completed') {
+      transcriptHandlerRef.current?.({ role: 'user', text: String(msg.transcript ?? ''), final: true });
+    }
+
+    if (type === 'response.output_audio_transcript.delta') {
+      transcriptHandlerRef.current?.({ role: 'assistant', text: String(msg.delta ?? ''), final: false });
+    }
+
+    if (type === 'response.output_audio_transcript.done') {
+      transcriptHandlerRef.current?.({ role: 'assistant', text: String(msg.transcript ?? ''), final: true });
+    }
 
     if (type === 'response.function_call_arguments.delta') {
       const callId = msg.call_id as string;
@@ -163,6 +186,10 @@ export function useRealtimeSession(conversationId: string | null) {
     toolCallHandlerRef.current = handler;
   }, []);
 
+  const onTranscript = useCallback((handler: ((event: TranscriptEvent) => void) | null) => {
+    transcriptHandlerRef.current = handler;
+  }, []);
+
   const injectSystemMessage = useCallback((text: string) => {
     if (!sessionRef.current) return;
     sendDataChannelEvent(sessionRef.current.dc, {
@@ -215,6 +242,7 @@ export function useRealtimeSession(conversationId: string | null) {
     toggleMute,
     sendFunctionResult,
     onToolCall,
+    onTranscript,
     injectSystemMessage,
     requestResponse,
     sendUserText,

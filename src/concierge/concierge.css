@@ -186,7 +186,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 40px;
+  gap: 28px;
+  align-self: flex-start;
   max-width: 480px;
   width: 100%;
 }
@@ -327,17 +328,303 @@
   box-shadow: 0 6px 18px rgba(232, 51, 106, 0.12);
 }
 
-/* Le mode vocal se contracte quand des cartes sont affichées */
+/* Le mode vocal se contracte et reste ancré vers le haut */
 .concierge-active--compact {
-  gap: 22px;
+  gap: 16px;
 }
 
 .concierge-active--compact .concierge-audio-viz {
-  gap: 44px;
+  gap: 40px;
 }
 
 .concierge-active--compact .concierge-viz-bars {
-  height: 52px;
+  height: 40px;
+}
+
+.concierge-active--compact .concierge-viz-label {
+  font-size: 10px;
+}
+
+.concierge-active--compact .concierge-transcript {
+  max-height: 150px;
+}
+
+/* ─── CONVERSATION EN DIRECT ─── */
+.concierge-transcript {
+  width: 100%;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px;
+  scrollbar-width: thin;
+}
+
+.concierge-transcript-empty {
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: #a4a4a4;
+  font-size: 13px;
+}
+
+.concierge-bubble {
+  max-width: 92%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  animation: concierge-bubble-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes concierge-bubble-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.concierge-bubble-author {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #a9a9a9;
+}
+
+.concierge-bubble p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.concierge-bubble--assistant {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  color: #1f1f1f;
+  border-bottom-left-radius: 6px;
+}
+
+.concierge-bubble--user {
+  align-self: flex-end;
+  background: #1a1a1a;
+  color: #fff;
+  border-bottom-right-radius: 6px;
+}
+
+.concierge-bubble--user .concierge-bubble-author {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.concierge-bubble--pending {
+  opacity: 0.72;
+}
+
+/* ─── SAISIE AU CLAVIER ─── */
+.concierge-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 8px 8px 16px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  border-radius: 22px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.concierge-composer:focus-within {
+  border-color: rgba(0, 0, 0, 0.22);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.08);
+}
+
+.concierge-composer-input {
+  flex: 1;
+  resize: none;
+  max-height: 110px;
+  padding: 10px 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #1a1a1a;
+  outline: none;
+}
+
+.concierge-composer-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  color: #fff;
+  background: #1a1a1a;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s, opacity 0.2s;
+}
+
+.concierge-composer-send:hover:not(:disabled) {
+  background: #e8336a;
+  transform: translateY(-1px);
+}
+
+.concierge-composer-send:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ─── FICHE : OBJET, FICHIERS, ENVOI ─── */
+.concierge-panel-objective {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.concierge-panel-objective-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #999;
+}
+
+.concierge-panel-objective p {
+  margin: 0;
+  padding: 11px 13px;
+  color: #333;
+  background: #f7f5f2;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.concierge-panel-files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.concierge-file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  color: #444;
+  background: #fff;
+  border: 1px dashed rgba(0, 0, 0, 0.18);
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.concierge-file-btn:hover {
+  color: #e8336a;
+  border-color: rgba(232, 51, 106, 0.4);
+  background: rgba(232, 51, 106, 0.03);
+}
+
+.concierge-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.concierge-file-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #f7f5f2;
+  border-radius: 10px;
+  font-size: 11px;
+  color: #555;
+}
+
+.concierge-file-list li span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.concierge-file-list li button {
+  display: flex;
+  color: #a0a0a0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.concierge-file-list li button:hover {
+  color: #dc2626;
+}
+
+.concierge-file-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.concierge-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 16px;
+  padding: 13px 20px;
+  font-size: 14px;
+  font-weight: 650;
+  color: #9a9a9a;
+  background: #eeecE8;
+  border: none;
+  border-radius: 999px;
+  cursor: not-allowed;
+  transition: background 0.25s, color 0.25s, transform 0.2s, box-shadow 0.25s;
+}
+
+.concierge-submit-btn--ready {
+  color: #fff;
+  background: #16a34a;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.24);
+}
+
+.concierge-submit-btn--ready:hover {
+  background: #15803d;
+  transform: translateY(-1px);
+}
+
+.concierge-submit-btn--sent {
+  color: #16763a;
+  background: #eaf8ef;
+  cursor: default;
+  box-shadow: none;
+}
+
+.concierge-spin {
+  animation: concierge-spin-anim 0.9s linear infinite;
+}
+
+@keyframes concierge-spin-anim {
+  to { transform: rotate(360deg); }
 }
 
 /* Controls */
@@ -606,12 +893,18 @@
 }
 
 .concierge-main--flow .concierge-session-layout {
-  align-items: center;
+  align-items: flex-start;
 }
 
 .concierge-session-layout--solo {
   grid-template-columns: minmax(300px, 480px);
   justify-content: center;
+}
+
+@media (max-width: 820px) {
+  .concierge-active {
+    align-self: stretch;
+  }
 }
 
 .concierge-flow {

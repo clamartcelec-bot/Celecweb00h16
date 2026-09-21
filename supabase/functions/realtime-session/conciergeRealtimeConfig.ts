@@ -28,7 +28,12 @@ export const CELEC_CONCIERGE_TOOLS: FunctionTool[] = [
       type: 'object',
       properties: {
         first_name: { type: 'string', description: 'Prénom du client.' },
+        last_name: { type: 'string', description: 'Nom de famille du client.' },
         phone: { type: 'string', description: 'Numéro de téléphone dicté par le client.' },
+        summary: {
+          type: 'string',
+          description: 'Objet de l’appel en une phrase, tel que le client l’a formulé.',
+        },
       },
       additionalProperties: false,
     },
@@ -124,7 +129,16 @@ export const CELEC_CONCIERGE_TOOLS: FunctionTool[] = [
     name: 'begin_appointment_flow',
     description:
       'Passe en mode rendez-vous dès que le client veut être contacté ou fixer un rendez-vous. À partir de cet instant, tu ne traites plus les questions sur le site.',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    parameters: {
+      type: 'object',
+      properties: {
+        callback_requested: {
+          type: 'boolean',
+          description: 'True si le client a demandé à être rappelé par téléphone.',
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     type: 'function',
@@ -173,7 +187,7 @@ export function buildConciergeInstructions(settings: ConciergeSettings | null): 
     `RÈGLES D’AFFICHAGE\n- Affiche au maximum ${maxCards} carte${maxCards > 1 ? 's' : ''} par réponse.\n- Les cartes affichées justifient ta réponse : jamais de carte sans explication à l’oral, jamais d’explication visuelle sans carte.\n- Si les informations du site comportent une mention « À COMPLÉTER », ne l’invente jamais : dis simplement que l’équipe confirmera.`,
   );
   sections.push(
-    `MODE RENDEZ-VOUS\n- Dès que le client veut un rendez-vous ou être rappelé, appelle begin_appointment_flow et recentre la conversation sur la prise de rendez-vous.\n- Si le client repose une question sur le site pendant ce mode, réponds une seule fois : « ${focus || 'Là je suis concentré sur votre rendez-vous, on termine cela et je réponds ensuite à tout ce que vous voulez.'} »`,
+    `MODE RENDEZ-VOUS\n- Dès que le client veut un rendez-vous ou être rappelé, appelle begin_appointment_flow et recentre la conversation sur la prise de rendez-vous.\n- Une fois en mode rendez-vous, la prise de rendez-vous devient ta seule priorité. Tu ne réponds plus aux questions sur le site, sur les marques ou sur le carnet. Demande au client de garder ces questions pour plus tard, ou propose-lui de raccrocher et de rappeler quand il aura fini son rendez-vous.\n- Quand il veut te parler d’autre chose, tu peux dire une seule fois : « ${focus || 'Là je suis concentré sur votre rendez-vous. Gardons cela pour la fin : on termine la prise de rendez-vous, et je réponds ensuite à tout ce que vous voulez.'} »\n- Tu dois récupérer le prénom, le nom, le numéro de téléphone et l’objet de l’appel avant de poursuivre. Ces quatre éléments sont indispensables.\n- Tu peux inviter le client à joindre une photo ou une courte vidéo depuis la fiche à l’écran quand cela aide à comprendre la situation.\n- Le lieu, le type de site, la priorité et les disponibilités ne sont utiles à la fiche que s’ils sont naturellement évoqués. Ne les réclame pas.`,
   );
 
   return sections.filter(Boolean).join('\n\n');
@@ -189,6 +203,9 @@ export function createConciergeRealtimeSession(
     model,
     instructions: buildConciergeInstructions(settings ?? null),
     audio: {
+      input: {
+        transcription: { model: 'gpt-4o-mini-transcribe' },
+      },
       output: { voice: voice || DEFAULT_CONCIERGE_VOICE },
     },
     tools: CELEC_CONCIERGE_TOOLS,

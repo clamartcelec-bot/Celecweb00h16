@@ -1,21 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
-  Building2,
+  Camera,
   CheckCircle2,
   ClipboardList,
   Clock3,
+  Loader2,
   MapPin,
   Mic,
   MicOff,
+  Paperclip,
   Phone,
   PhoneOff,
   RotateCcw,
+  Send,
   UserRound,
-  Wallet,
+  X,
 } from 'lucide-react';
-import { useRealtimeSession, type ToolCall } from '../hooks/useRealtimeSession';
+import { useRealtimeSession, type ToolCall, type TranscriptEvent } from '../hooks/useRealtimeSession';
 import { useConversationTimer } from '../hooks/useConversationTimer';
 import { formatConciergeContext, loadConciergeContext, type ConciergeContext } from '../services/context';
 import {
@@ -29,13 +32,16 @@ import {
 import { markPresentedEntries } from '../services/presence';
 import { loadConciergeSettings, DEFAULT_CONCIERGE_SETTINGS, type ConciergeSettings } from '../services/config';
 import { submitConciergeLead } from '../services/lead';
+import { uploadConciergeFile } from '../services/upload';
 import { carnetUrlForSession, endConciergeSession, startConciergeSession } from '@/lib/conciergeSession';
 import {
   CATEGORY_LABELS,
   EMPTY_CONCIERGE_DRAFT,
   URGENCY_LABELS,
+  isDraftSubmittable,
   type ConciergeCard,
   type ConciergeDraft,
+  type ConciergeMessage,
   type RequestCategory,
   type RequestUrgency,
 } from '../types';
@@ -49,10 +55,10 @@ const TOPICS: Array<{ label: string; category: RequestCategory }> = [
   { label: 'Je ne sais pas vraiment', category: 'question' },
 ];
 
-const QUICK_ACTIONS: Array<{ label: string; prompt: string }> = [
+const QUICK_PROMPTS: Array<{ label: string; prompt: string }> = [
   {
     label: 'Prendre rendez-vous',
-    prompt: "Je souhaite prendre rendez-vous avec CELEC. Lance le mode rendez-vous et remplis la fiche avec moi au fil de la conversation.",
+    prompt: "Je souhaite prendre rendez-vous avec CELEC. Lance le mode rendez-vous et remplis la fiche avec moi.",
   },
   {
     label: 'Ce que vous faites',
@@ -63,6 +69,8 @@ const QUICK_ACTIONS: Array<{ label: string; prompt: string }> = [
     prompt: "Avec quelles marques et quels partenaires CELEC travaille-t-il ? Présente-les et affiche les fiches correspondantes.",
   },
 ];
+
+const CALLBACK_PROMPT = 'Je préfère être rappelé plutôt que de continuer à parler. Bascule en mode rendez-vous.';
 
 function stringArg(args: Record<string, unknown>, key: string) {
   return typeof args[key] === 'string' ? args[key].trim() : undefined;
@@ -104,6 +112,7 @@ export function ConciergePage() {
     toggleMute,
     sendFunctionResult,
     onToolCall,
+    onTranscript,
     injectSystemMessage,
     requestResponse,
     sendUserText,
@@ -114,8 +123,12 @@ export function ConciergePage() {
   const [knowledgeReady, setKnowledgeReady] = useState(false);
   const [settings, setSettings] = useState<ConciergeSettings>(DEFAULT_CONCIERGE_SETTINGS);
   const [cards, setCards] = useState<ConciergeCard[]>([]);
+  const [messages, setMessages] = useState<ConciergeMessage[]>([]);
+  const [composerText, setComposerText] = useState('');
   const [appointmentMode, setAppointmentMode] = useState(false);
   const [submissionState, setSubmissionState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const hasInjectedWarningRef = useRef(false);
   const hasStartedGreetingRef = useRef(false);
@@ -126,6 +139,7 @@ export function ConciergePage() {
   const knowledgeRef = useRef<ConciergeKnowledge>(EMPTY_KNOWLEDGE);
   const sessionIdRef = useRef<string | null>(null);
   const shownCardIdsRef = useRef<Set<string>>(new Set());
+  const transcriptRef = useRef<ConciergeMessage[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -183,15 +197,44 @@ export function ConciergePage() {
     if (entryIds.length) void markPresentedEntries(entryIds, sessionIdRef.current);
   }, []);
 
+  const handleTranscript = useCallback((event: TranscriptEvent) => {
+    setMessages((current) => {
+      const last = current[current.length - 1];
+      let next: ConciergeMessage[];
+
+      if (last && last.role === event.role && last.pending) {
+        next = [...current.slice(0, -1), {
+          ...last,
+          text: event.final ? event.text : last.text + event.text,
+          pending: !event.final,
+        }];
+      } else {
+        next = [...current, {
+          id: `${event.role}-${current.length}-${Date.now()}`,
+          role: event.role,
+          text: event.text,
+          pending: !event.final,
+        }];
+      }
+
+      transcriptRef.current = next;
+      return next;
+    });
+  }, []);
+
   const handleToolCall = useCallback(async (tool: ToolCall) => {
     const args = tool.arguments;
 
     if (tool.name === 'update_client_panel') {
       const firstName = stringArg(args, 'first_name');
+      const lastName = stringArg(args, 'last_name');
       const phone = stringArg(args, 'phone');
+      const summary = stringArg(args, 'summary');
       updateDraft({
         ...(firstName !== undefined && { firstName }),
+        ...(lastName !== undefined && { lastName }),
         ...(phone !== undefined && { phone }),
+        ...(summary !== undefined && { summary }),
       });
       sendFunctionResult(tool.callId, { success: true, message: 'Fiche client mise à jour.' });
       return;
@@ -224,6 +267,14 @@ export function ConciergePage() {
     }
 
     if (tool.name === 'search_carnet') {
+      if (appointmentMode) {
+        sendFunctionResult(tool.callId, {
+          success: false,
+          message: 'Mode rendez-vous actif : ne consulte plus le carnet. Recentre la conversation sur la prise de rendez-vous.',
+        });
+        return;
+      }
+
       const query = stringArg(args, 'query') ?? '';
       const found = searchCarnet(knowledgeRef.current, query, 3);
       sendFunctionResult(tool.callId, {
@@ -243,6 +294,14 @@ export function ConciergePage() {
     }
 
     if (tool.name === 'show_carnet_entries') {
+      if (appointmentMode) {
+        sendFunctionResult(tool.callId, {
+          success: false,
+          message: 'Mode rendez-vous actif : n’affiche plus de billets. Reste sur la prise de rendez-vous.',
+        });
+        return;
+      }
+
       const ids = stringArrayArg(args, 'entry_ids');
       const entries = findEntries(knowledgeRef.current, ids);
       const limited = entries.slice(0, Math.max(1, settingsRef.current.max_cards || 3));
@@ -266,6 +325,14 @@ export function ConciergePage() {
     }
 
     if (tool.name === 'show_brand') {
+      if (appointmentMode) {
+        sendFunctionResult(tool.callId, {
+          success: false,
+          message: 'Mode rendez-vous actif : n’affiche plus de marque. Reste sur la prise de rendez-vous.',
+        });
+        return;
+      }
+
       if (!settingsRef.current.show_brand_cards) {
         sendFunctionResult(tool.callId, {
           success: false,
@@ -304,6 +371,9 @@ export function ConciergePage() {
 
     if (tool.name === 'begin_appointment_flow') {
       setAppointmentMode(true);
+      if (booleanArg(args, 'callback_requested') === true) {
+        updateDraft({ callbackRequested: true });
+      }
       sendFunctionResult(tool.callId, {
         success: true,
         mode: 'rendez-vous',
@@ -331,46 +401,25 @@ export function ConciergePage() {
       const phone = stringArg(args, 'phone');
       const category = categoryArg(stringArg(args, 'category'));
       const summary = stringArg(args, 'summary');
-      const siteType = stringArg(args, 'site_type');
-      const location = stringArg(args, 'location');
-      const urgency = urgencyArg(stringArg(args, 'urgency'));
-      const availability = stringArg(args, 'availability');
-      const callbackRequested = booleanArg(args, 'callback_requested');
-      const nextDraft: ConciergeDraft = {
-        ...draftRef.current,
+
+      updateDraft({
         ...(firstName !== undefined && { firstName }),
         ...(phone !== undefined && { phone }),
         ...(category && { category }),
         ...(summary !== undefined && { summary }),
-        ...(siteType !== undefined && { siteType }),
-        ...(location !== undefined && { location }),
-        ...(urgency && { urgency }),
-        ...(availability !== undefined && { availability }),
-        ...(callbackRequested !== undefined && { callbackRequested }),
-      };
-
-      updateDraft(nextDraft);
-      setSubmissionState('sending');
+      });
 
       try {
-        const result = await submitConciergeLead(nextDraft);
-        hasSubmittedRef.current = true;
-        setSubmissionState('sent');
-        updateDraft({
-          nextStep: result.telegram
-            ? 'Demande transmise à l’équipe CELEC'
-            : 'Demande enregistrée dans l’espace CELEC',
-        });
+        const result = await sendLead('concierge');
         sendFunctionResult(tool.callId, {
           success: true,
           saved: true,
           telegram_notified: result.telegram,
           message: result.telegram
-            ? 'La demande est enregistrée et transmise à l’équipe CELEC.'
+            ? 'La demande est enregistrée et transmise à l’équipe CELEC. Remercie le client et confirme-lui que tout est transmis.'
             : 'La demande est enregistrée. La notification Telegram n’a pas pu être confirmée.',
         });
       } catch (submissionError) {
-        setSubmissionState('error');
         sendFunctionResult(tool.callId, {
           success: false,
           message: submissionError instanceof Error
@@ -379,12 +428,42 @@ export function ConciergePage() {
         });
       }
     }
-  }, [pushCards, requestResponse, sendFunctionResult, updateDraft]);
+  }, [appointmentMode, pushCards, requestResponse, sendFunctionResult, updateDraft]);
+
+  const sendLead = useCallback(async (source: 'concierge' | 'callback') => {
+    const current = draftRef.current;
+    if (!isDraftSubmittable(current)) {
+      throw new Error('Le nom, le téléphone et l’objet de l’appel sont nécessaires.');
+    }
+
+    setSubmissionState('sending');
+    setUploadError(null);
+
+    try {
+      const result = await submitConciergeLead(current, source);
+      hasSubmittedRef.current = true;
+      setSubmissionState('sent');
+      updateDraft({
+        nextStep: result.telegram
+          ? 'Demande transmise à l’équipe CELEC'
+          : 'Demande enregistrée dans l’espace CELEC',
+      });
+      return result;
+    } catch (submissionError) {
+      setSubmissionState('error');
+      throw submissionError;
+    }
+  }, [updateDraft]);
 
   useEffect(() => {
     onToolCall(handleToolCall);
     return () => onToolCall(null);
   }, [handleToolCall, onToolCall]);
+
+  useEffect(() => {
+    onTranscript(handleTranscript);
+    return () => onTranscript(null);
+  }, [handleTranscript, onTranscript]);
 
   useEffect(() => {
     if (status !== 'connected') {
@@ -424,6 +503,10 @@ export function ConciergePage() {
     hasSubmittedRef.current = false;
     setSubmissionState('idle');
     setCards([]);
+    setMessages([]);
+    transcriptRef.current = [];
+    setComposerText('');
+    setUploadError(null);
     setAppointmentMode(false);
     shownCardIdsRef.current.clear();
     sessionIdRef.current = startConciergeSession();
@@ -444,9 +527,53 @@ export function ConciergePage() {
     window.location.href = '/';
   };
 
+  const handleSendMessage = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    sendUserText(trimmed);
+    setComposerText('');
+  };
+
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleSendMessage(composerText);
+    }
+  };
+
+  const handleFilePick = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const url = await uploadConciergeFile(file, sessionIdRef.current);
+      updateDraft({ attachments: [...draftRef.current.attachments, url] });
+    } catch (uploadFailure) {
+      setUploadError(uploadFailure instanceof Error ? uploadFailure.message : 'Envoi impossible.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAttachment = (url: string) => {
+    updateDraft({ attachments: draftRef.current.attachments.filter((item) => item !== url) });
+  };
+
+  const handleManualSubmit = async () => {
+    try {
+      await sendLead(appointmentMode ? 'concierge' : 'callback');
+    } catch {
+      // l'erreur est déjà reflétée dans l'état de transmission
+    }
+  };
+
   const inSession = status === 'connected' || status === 'ended';
   const showRequestPanel = appointmentMode || submissionState !== 'idle';
   const hasFlow = cards.length > 0 || showRequestPanel;
+  const readyToSend = isDraftSubmittable(draft);
 
   const flow = useMemo(() => {
     if (!cards.length) return null;
@@ -499,8 +626,8 @@ export function ConciergePage() {
         )}
 
         {status === 'idle' && settings.enabled && (
-        <IdleView greeting={settings.greeting} knowledgeReady={knowledgeReady} onStart={handleStart} />
-      )}
+          <IdleView greeting={settings.greeting} knowledgeReady={knowledgeReady} onStart={handleStart} />
+        )}
         {status === 'requesting-mic' && <ConnectingView label="Autorisation du micro..." />}
         {status === 'connecting' && <ConnectingView label="Connexion en cours..." />}
 
@@ -513,11 +640,27 @@ export function ConciergePage() {
                 isMuted={isMuted}
                 isUserSpeaking={isUserSpeaking}
                 isAssistantSpeaking={isAssistantSpeaking}
+                messages={messages}
+                composerText={composerText}
+                onComposerChange={setComposerText}
+                onComposerKeyDown={handleComposerKeyDown}
+                onSendMessage={handleSendMessage}
+                onQuickAction={sendUserText}
                 onToggleMute={toggleMute}
                 onEnd={handleEnd}
-                onQuickAction={sendUserText}
               />
-              {showRequestPanel && <RequestPanel draft={draft} submissionState={submissionState} />}
+              {showRequestPanel && (
+                <RequestPanel
+                  draft={draft}
+                  submissionState={submissionState}
+                  readyToSend={readyToSend}
+                  uploading={uploading}
+                  uploadError={uploadError}
+                  onFilePick={handleFilePick}
+                  onRemoveAttachment={removeAttachment}
+                  onSubmit={handleManualSubmit}
+                />
+              )}
             </div>
             {flow}
           </>
@@ -529,7 +672,18 @@ export function ConciergePage() {
           <>
             <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
               <EndedView draft={draft} onRestart={() => handleStart()} onBack={handleGoBack} />
-              {showRequestPanel && <RequestPanel draft={draft} submissionState={submissionState} />}
+              {showRequestPanel && (
+                <RequestPanel
+                  draft={draft}
+                  submissionState={submissionState}
+                  readyToSend={readyToSend}
+                  uploading={uploading}
+                  uploadError={uploadError}
+                  onFilePick={handleFilePick}
+                  onRemoveAttachment={removeAttachment}
+                  onSubmit={handleManualSubmit}
+                />
+              )}
             </div>
             {flow}
           </>
@@ -590,12 +744,39 @@ interface ActiveViewProps {
   isMuted: boolean;
   isUserSpeaking: boolean;
   isAssistantSpeaking: boolean;
+  messages: ConciergeMessage[];
+  composerText: string;
+  onComposerChange: (value: string) => void;
+  onComposerKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onSendMessage: (text: string) => void;
+  onQuickAction: (prompt: string) => void;
   onToggleMute: () => void;
   onEnd: () => void;
-  onQuickAction: (prompt: string) => void;
 }
 
-function ActiveView({ timer, compact, isMuted, isUserSpeaking, isAssistantSpeaking, onToggleMute, onEnd, onQuickAction }: ActiveViewProps) {
+function ActiveView({
+  timer,
+  compact,
+  isMuted,
+  isUserSpeaking,
+  isAssistantSpeaking,
+  messages,
+  composerText,
+  onComposerChange,
+  onComposerKeyDown,
+  onSendMessage,
+  onQuickAction,
+  onToggleMute,
+  onEnd,
+}: ActiveViewProps) {
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages]);
+
+  const showQuickPrompts = messages.length <= 1;
+
   return (
     <div className={`concierge-active ${compact ? 'concierge-active--compact' : ''}`}>
       <div className="concierge-status-row">
@@ -618,6 +799,55 @@ function ActiveView({ timer, compact, isMuted, isUserSpeaking, isAssistantSpeaki
         <AudioBars label="CELEC" variant="celec" active={isAssistantSpeaking} />
       </div>
 
+      <div className="concierge-transcript" aria-live="polite">
+        {messages.length === 0 ? (
+          <p className="concierge-transcript-empty">La conversation s’affiche ici, en direct.</p>
+        ) : (
+          messages.map((message) => (
+            <div
+              key={message.id}
+              className={`concierge-bubble concierge-bubble--${message.role} ${message.pending ? 'concierge-bubble--pending' : ''}`}
+            >
+              <span className="concierge-bubble-author">{message.role === 'user' ? 'Vous' : 'CELEC'}</span>
+              <p>{message.text}</p>
+            </div>
+          ))
+        )}
+        <div ref={transcriptEndRef} />
+      </div>
+
+      <div className="concierge-composer">
+        <textarea
+          value={composerText}
+          onChange={(event) => onComposerChange(event.target.value)}
+          onKeyDown={onComposerKeyDown}
+          rows={1}
+          placeholder="Écrivez votre message…"
+          className="concierge-composer-input"
+        />
+        <button
+          onClick={() => onSendMessage(composerText)}
+          className="concierge-composer-send"
+          disabled={!composerText.trim()}
+          aria-label="Envoyer le message"
+        >
+          <Send size={18} />
+        </button>
+      </div>
+
+      {showQuickPrompts && (
+        <div className="concierge-quick-actions">
+          {QUICK_PROMPTS.map((action) => (
+            <button key={action.label} onClick={() => onQuickAction(action.prompt)} className="concierge-quick-btn">
+              {action.label}
+            </button>
+          ))}
+          <button onClick={() => onQuickAction(CALLBACK_PROMPT)} className="concierge-quick-btn">
+            Être rappelé
+          </button>
+        </div>
+      )}
+
       <div className="concierge-controls">
         <button
           onClick={onToggleMute}
@@ -631,18 +861,6 @@ function ActiveView({ timer, compact, isMuted, isUserSpeaking, isAssistantSpeaki
           <PhoneOff size={20} />
           Raccrocher
         </button>
-      </div>
-
-      <div className="concierge-quick-actions">
-        {QUICK_ACTIONS.map((action) => (
-          <button
-            key={action.label}
-            onClick={() => onQuickAction(action.prompt)}
-            className="concierge-quick-btn"
-          >
-            {action.label}
-          </button>
-        ))}
       </div>
     </div>
   );
@@ -665,54 +883,110 @@ function AudioBars({ label, variant, active }: { label: string; variant: 'user' 
   );
 }
 
+interface RequestPanelProps {
+  draft: ConciergeDraft;
+  submissionState: 'idle' | 'sending' | 'sent' | 'error';
+  readyToSend: boolean;
+  uploading: boolean;
+  uploadError: string | null;
+  onFilePick: (event: ChangeEvent<HTMLInputElement>) => void;
+  onRemoveAttachment: (url: string) => void;
+  onSubmit: () => void;
+}
+
 function RequestPanel({
   draft,
   submissionState,
-}: {
-  draft: ConciergeDraft;
-  submissionState: 'idle' | 'sending' | 'sent' | 'error';
-}) {
+  readyToSend,
+  uploading,
+  uploadError,
+  onFilePick,
+  onRemoveAttachment,
+  onSubmit,
+}: RequestPanelProps) {
+  const sent = submissionState === 'sent';
+
   return (
     <aside className="concierge-request-panel" aria-live="polite">
       <div className="concierge-panel-title">
         <ClipboardList size={18} />
-        <span>Votre demande</span>
-        {submissionState !== 'idle' && (
-          <span className={`concierge-submit-status concierge-submit-status--${submissionState}`}>
-            {submissionState === 'sending' && 'Envoi…'}
-            {submissionState === 'sent' && 'Transmise'}
-            {submissionState === 'error' && 'À réessayer'}
-          </span>
-        )}
+        <span>Prise de rendez-vous</span>
       </div>
+
+      <PanelLine icon={<UserRound size={15} />} label="Nom" value={draft.lastName} />
       <PanelLine icon={<UserRound size={15} />} label="Prénom" value={draft.firstName} />
       <PanelLine icon={<Phone size={15} />} label="Téléphone" value={draft.phone} />
-      <PanelLine
-        icon={<ClipboardList size={15} />}
-        label="Objet"
-        value={draft.category ? CATEGORY_LABELS[draft.category] : ''}
-      />
-      <PanelLine icon={<Building2 size={15} />} label="Site" value={draft.siteType} />
       <PanelLine icon={<MapPin size={15} />} label="Lieu" value={draft.location} />
-      <PanelLine
-        icon={<AlertTriangle size={15} />}
-        label="Priorité"
-        value={draft.urgency ? URGENCY_LABELS[draft.urgency] : ''}
-      />
-      <PanelLine icon={<Clock3 size={15} />} label="Disponibilités" value={draft.availability} />
-      {draft.summary && <p className="concierge-panel-summary">{draft.summary}</p>}
+
+      {draft.category && (
+        <PanelLine icon={<ClipboardList size={15} />} label="Objet" value={CATEGORY_LABELS[draft.category]} />
+      )}
+      {draft.siteType && <PanelLine icon={<ClipboardList size={15} />} label="Type de site" value={draft.siteType} />}
+      {draft.urgency && (
+        <PanelLine icon={<AlertTriangle size={15} />} label="Priorité" value={URGENCY_LABELS[draft.urgency]} />
+      )}
+      {draft.availability && (
+        <PanelLine icon={<Clock3 size={15} />} label="Disponibilités" value={draft.availability} />
+      )}
+
+      <div className="concierge-panel-objective">
+        <span className="concierge-panel-objective-label">Objet de l’appel</span>
+        <p>{draft.summary || 'À préciser pendant l’échange.'}</p>
+      </div>
+
+      <div className="concierge-panel-files">
+        <label className="concierge-file-btn">
+          {uploading ? <Loader2 size={15} className="concierge-spin" /> : <Paperclip size={15} />}
+          Ajouter une photo ou une vidéo
+          <input
+            type="file"
+            accept="image/*,video/*"
+            onChange={onFilePick}
+            hidden
+          />
+        </label>
+
+        {uploadError && <p className="concierge-file-error">{uploadError}</p>}
+
+        {draft.attachments.length > 0 && (
+          <ul className="concierge-file-list">
+            {draft.attachments.map((url) => (
+              <li key={url}>
+                <Camera size={13} />
+                <span>{url.split('/').pop()}</span>
+                <button onClick={() => onRemoveAttachment(url)} aria-label="Retirer le fichier">
+                  <X size={13} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {draft.nextStep && (
         <div className="concierge-panel-next">
           <CheckCircle2 size={15} />
           <span>{draft.nextStep}</span>
         </div>
       )}
-      {draft.photoNeeded && <p className="concierge-panel-photo">Une photo pourra être demandée pour préciser le diagnostic.</p>}
-      {!draft.summary && submissionState === 'idle' && (
+
+      <button
+        onClick={onSubmit}
+        disabled={!readyToSend || sent || submissionState === 'sending'}
+        className={`concierge-submit-btn ${readyToSend ? 'concierge-submit-btn--ready' : ''} ${sent ? 'concierge-submit-btn--sent' : ''}`}
+      >
+        {submissionState === 'sending' && <Loader2 size={16} className="concierge-spin" />}
+        {sent && <CheckCircle2 size={16} />}
+        {sent ? 'Demande transmise' : submissionState === 'sending' ? 'Envoi…' : 'Envoyer la demande'}
+      </button>
+
+      {!readyToSend && (
         <p className="concierge-panel-hint">
-          <Wallet size={13} />
-          La fiche se remplit au fil de la conversation. Rien n’est transmis sans votre accord.
+          Le nom, le téléphone et l’objet de l’appel sont nécessaires pour envoyer la demande.
         </p>
+      )}
+      {submissionState === 'error' && (
+        <p className="concierge-file-error">L’envoi a échoué. Réessayez dans quelques instants.</p>
       )}
     </aside>
   );
