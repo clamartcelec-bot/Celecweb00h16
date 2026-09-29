@@ -37,6 +37,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { supabase } from '@/lib/supabase';
 import { LoginModal } from '@/components/LoginModal';
+import { PasswordResetModal } from '@/components/PasswordResetModal';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { ClientSpace } from '@/components/ClientSpace';
 import { CONCIERGE_SESSION_PARAM, currentConciergeSession } from '@/lib/conciergeSession';
@@ -408,6 +409,8 @@ function App() {
   const [telegramOk, setTelegramOk] = useState<boolean | null>(null);
   const [callbackOpen, setCallbackOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [resetMode, setResetMode] = useState<'request' | 'update' | null>(null);
+  const [resetExpired, setResetExpired] = useState(false);
   const [carnetEntries, setCarnetEntries] = useState<Photo[]>([]);
   const [carnetLoading, setCarnetLoading] = useState(false);
   const [carnetHasMore, setCarnetHasMore] = useState(true);
@@ -452,7 +455,14 @@ function App() {
         });
       }
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      // Supabase pose une session temporaire quand on ouvre un lien de
+      // réinitialisation : on en profite pour demander le nouveau mot de passe.
+      if (event === 'PASSWORD_RECOVERY') {
+        setLoginOpen(false);
+        setResetExpired(false);
+        setResetMode('update');
+      }
       (async () => {
         const email = session?.user?.email ?? null;
         setUserEmail(email);
@@ -503,6 +513,12 @@ function App() {
   // Deep links coming from the concierge: ?concierge=<session> reopens the last
   // carnet entry the concierge presented, ?brand=<name> opens that partner sheet.
   useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    if (hash.get('error_code') === 'otp_expired' || hash.get('error') === 'access_denied') {
+      setResetExpired(true);
+      setResetMode('update');
+    }
+
     const params = new URLSearchParams(window.location.search);
     const conciergeSession = params.get(CONCIERGE_SESSION_PARAM);
     const brand = params.get('brand');
@@ -1332,7 +1348,11 @@ function App() {
         )}
 
         {view === 'admin-login' && (
-          <AdminLogin t={t} onSuccess={() => go('admin')} />
+          <AdminLogin
+            t={t}
+            onSuccess={() => go('admin')}
+            onForgot={() => { setResetExpired(false); setResetMode('request'); }}
+          />
         )}
 
         {view === 'admin' && (
@@ -1358,7 +1378,22 @@ function App() {
       )}
 
       {loginOpen && (
-        <LoginModal lang={lang} onClose={() => setLoginOpen(false)} onAuthed={() => {}} />
+        <LoginModal
+          lang={lang}
+          onClose={() => setLoginOpen(false)}
+          onAuthed={() => {}}
+          onForgot={() => { setLoginOpen(false); setResetExpired(false); setResetMode('request'); }}
+        />
+      )}
+
+      {resetMode && (
+        <PasswordResetModal
+          lang={lang}
+          mode={resetMode}
+          linkExpired={resetExpired}
+          onClose={() => { setResetMode(null); setResetExpired(false); }}
+          onAuthed={() => { setResetMode(null); setResetExpired(false); setLoginOpen(false); }}
+        />
       )}
 
       {clientSpaceOpen && (
@@ -1433,7 +1468,7 @@ function CallbackModal({ t, onClose }: { t: typeof fr; onClose: () => void }) {
   );
 }
 
-function AdminLogin({ t, onSuccess }: { t: typeof fr; onSuccess: () => void }) {
+function AdminLogin({ t, onSuccess, onForgot }: { t: typeof fr; onSuccess: () => void; onForgot: () => void }) {
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [error, setError] = useState('');
@@ -1469,6 +1504,7 @@ function AdminLogin({ t, onSuccess }: { t: typeof fr; onSuccess: () => void }) {
         <button className="btn-pink" onClick={handleLogin} disabled={loading || !email.trim() || !pw}>
           {loading ? '...' : 'Se connecter'}
         </button>
+        <button className="login-forgot" onClick={onForgot}>Mot de passe oubli\u00e9\u202f?</button>
         {error && <p className="login-error" style={{ marginTop: 12 }}>{error}</p>}
       </div>
     </section>

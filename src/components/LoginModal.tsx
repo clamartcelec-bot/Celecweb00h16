@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Mail, UserRound, Lock } from 'lucide-react';
+import { X, UserRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { Lang } from './types';
 
@@ -7,6 +7,7 @@ interface LoginModalProps {
   lang: Lang;
   onClose: () => void;
   onAuthed: () => void;
+  onForgot: () => void;
 }
 
 const labels = {
@@ -26,6 +27,7 @@ const labels = {
     create: 'Cr\u00e9er mon compte',
     pwTooShort: 'Le mot de passe doit faire au moins 6 caract\u00e8res.',
     pwMismatch: 'Les mots de passe ne correspondent pas.',
+    forgot: 'Mot de passe oubli\u00e9\u202f?',
   },
   en: {
     title: 'Log in',
@@ -43,6 +45,7 @@ const labels = {
     create: 'Create my account',
     pwTooShort: 'Password must be at least 6 characters.',
     pwMismatch: 'Passwords do not match.',
+    forgot: 'Forgot your password?',
   },
   es: {
     title: 'Iniciar sesi\u00f3n',
@@ -60,6 +63,7 @@ const labels = {
     create: 'Crear mi cuenta',
     pwTooShort: 'La contrase\u00f1a debe tener al menos 6 caracteres.',
     pwMismatch: 'Las contrase\u00f1as no coinciden.',
+    forgot: '\u00bfOlvid\u00f3 su contrase\u00f1a?',
   },
   ar: {
     title: '\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644',
@@ -77,10 +81,11 @@ const labels = {
     create: '\u0625\u0646\u0634\u0627\u0621 \u062d\u0633\u0627\u0628\u064a',
     pwTooShort: '\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064a\u062c\u0628 \u0623\u0646 \u062a\u062d\u062a\u0648\u064a \u0639\u0644\u0649 6 \u0623\u062d\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644.',
     pwMismatch: '\u0643\u0644\u0645\u062a\u0627 \u0627\u0644\u0645\u0631\u0648\u0631 \u063a\u064a\u0631 \u0645\u062a\u0637\u0627\u0628\u0642\u062a\u064a\u0646.',
+    forgot: '\u0647\u0644 \u0646\u0633\u064a\u062a \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631\u061f',
   },
 };
 
-export function LoginModal({ lang, onClose, onAuthed }: LoginModalProps) {
+export function LoginModal({ lang, onClose, onAuthed, onForgot }: LoginModalProps) {
   const l = labels[lang];
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
@@ -141,6 +146,7 @@ export function LoginModal({ lang, onClose, onAuthed }: LoginModalProps) {
             <button className="btn-pink full" onClick={handleLogin} disabled={loading || !email.trim() || !password}>
               {loading ? '...' : l.login}
             </button>
+            <button className="login-forgot" onClick={() => { setError(''); onForgot(); }}>{l.forgot}</button>
             <p className="login-switch">{l.noAccount} <button className="link-btn" onClick={() => { setMode('signup'); setError(''); }}>{l.signup}</button></p>
           </>
         ) : (

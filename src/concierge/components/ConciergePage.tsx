@@ -156,7 +156,6 @@ export function ConciergePage() {
   const sessionIdRef = useRef<string | null>(null);
   const shownCardIdsRef = useRef<Set<string>>(new Set());
   const transcriptRef = useRef<ConciergeMessage[]>([]);
-  const pendingAiRef = useRef('');
   const isResumingRef = useRef(false);
 
   useEffect(() => {

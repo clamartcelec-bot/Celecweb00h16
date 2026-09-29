@@ -441,6 +441,10 @@ input,textarea{font:inherit;color:var(--text)}
 .login-switch{font-size:12px;color:var(--muted);text-align:center;margin-top:14px}
 .login-switch .link-btn{background:none;border:none;color:var(--pink);font-weight:600;font-size:12px;cursor:pointer;padding:0;text-decoration:underline}
 .login-switch .link-btn:hover{opacity:.8}
+.login-forgot{display:block;margin:10px auto 0;padding:0;background:none;border:none;color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;text-decoration:underline;text-underline-offset:3px;transition:color .18s}
+.login-forgot:hover{color:var(--pink)}
+.pw-reset-success-icon{margin:16px auto 8px;color:#10b981}
+.pw-reset-success-title{margin:0 0 6px;font-size:17px;font-weight:700;color:var(--text)}
 .modal-p.small{font-size:13px;margin-bottom:12px}
 
 /* ─── ADMIN DASHBOARD ─── */
