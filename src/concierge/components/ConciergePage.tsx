@@ -48,7 +48,7 @@ import {
   type RequestCategory,
   type RequestUrgency,
 } from '../types';
-import { CardChip } from './CardChip';
+import { ConciergeCardStack } from './ConciergeCardStack';
 import '../concierge.css';
 
 const TOPICS: Array<{ label: string; category: RequestCategory }> = [
@@ -670,28 +670,13 @@ export function ConciergePage() {
   const flow = useMemo(() => {
     if (appointmentMode || !cards.length) return null;
     return (
-      <div className="concierge-flow">
-        <div className="concierge-flow-head">
-          <span className="concierge-flow-label">Ce que je vous montre</span>
-        </div>
-        <div className="concierge-card-list">
-          {cards.map((card, index) => (
-            <CardChip
-              key={card.id}
-              card={card}
-              featured={index === 0}
-              detailHref={card.kind === 'carnet'
-                ? carnetUrlForSession(sessionIdRef.current)
-                : brandCardHref(card.brandName ?? card.title)}
-            />
-          ))}
-        </div>
-        {status === 'ended' && (
-          <p className="concierge-flow-note">
-            L’appel est terminé. Les billets présentés restent marqués dans le carnet jusqu’à votre prochaine visite.
-          </p>
-        )}
-      </div>
+      <ConciergeCardStack
+        cards={cards}
+        ended={status === 'ended'}
+        detailHrefFor={(card) => card.kind === 'carnet'
+          ? carnetUrlForSession(sessionIdRef.current)
+          : brandCardHref(card.brandName ?? card.title)}
+      />
     );
   }, [appointmentMode, cards, status]);
 

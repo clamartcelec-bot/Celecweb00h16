@@ -1097,6 +1097,7 @@
 
 /* ─── CARTE BILLET / MARQUE ─── */
 .cc-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1104,19 +1105,11 @@
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 20px;
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.05);
-  animation: cc-card-in 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
-  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
+  transition: border-color 0.25s, box-shadow 0.25s;
 }
 
-.cc-card:nth-child(1) { animation-delay: 0.02s; }
-.cc-card:nth-child(2) { animation-delay: 0.1s; }
-.cc-card:nth-child(3) { animation-delay: 0.18s; }
-.cc-card:nth-child(4) { animation-delay: 0.26s; }
-.cc-card:nth-child(n + 5) { animation-delay: 0.34s; }
-
 .cc-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.09);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.1);
 }
 
 .cc-card--open {
@@ -1124,9 +1117,24 @@
   box-shadow: 0 12px 32px rgba(232, 51, 106, 0.12);
 }
 
-@keyframes cc-card-in {
-  from { opacity: 0; transform: translateY(20px) scale(0.94); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+.cc-card--featured {
+  border-color: rgba(232, 51, 106, 0.18);
+  box-shadow: 0 12px 34px rgba(232, 51, 106, 0.09);
+}
+
+.cc-spotlight {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  border-radius: inherit;
+}
+
+.cc-card-btn,
+.cc-detail {
+  position: relative;
+  z-index: 2;
 }
 
 .cc-card-btn {
@@ -1239,19 +1247,17 @@
 }
 
 .cc-detail {
+  overflow: hidden;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fbfaf8;
+}
+
+.cc-detail-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 14px 18px 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  background: #fbfaf8;
-  animation: cc-detail-in 0.25s ease;
-}
-
-@keyframes cc-detail-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .cc-detail p {
@@ -1308,15 +1314,58 @@
   }
 
   .concierge-card-list {
-    grid-template-columns: 1fr;
+    display: flex;
+    gap: 12px;
+    margin: 0 -4px;
+    padding: 4px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding: 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
 
-  .cc-detail {
+  .concierge-card-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .concierge-card-list > * {
+    flex: 0 0 82%;
+    scroll-snap-align: center;
+  }
+
+  .cc-dots {
+    display: flex;
+  }
+
+  .cc-detail-inner {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
   }
 }
+
+/* ─── POINTS DE REPÈRE (mobile) ─── */
+.cc-dots {
+  display: none;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.cc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.16);
+  transition: width 0.25s, background 0.25s;
+}
+
+.cc-dot--active {
+  width: 20px;
+  background: #e8336a;
+}
+
 
 /* ─── RESPONSIVE ─── */
 @media (max-width: 480px) {

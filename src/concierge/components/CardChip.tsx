@@ -1,19 +1,88 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import {
+  AnimatePresence,
+  motion,
+  useMotionTemplate,
+  useMotionValue,
+  useReducedMotion,
+  useSpring,
+} from 'motion/react';
 import { ArrowUpRight, Camera, ChevronDown, Handshake } from 'lucide-react';
 import type { ConciergeCard } from '../types';
 
 interface CardChipProps {
   card: ConciergeCard;
+  index: number;
   featured?: boolean;
   detailHref: string;
 }
 
-export function CardChip({ card, featured = false, detailHref }: CardChipProps) {
+const ENTRANCE_SPRING = { type: 'spring', stiffness: 240, damping: 26 } as const;
+const TILT_SPRING = { stiffness: 190, damping: 18 } as const;
+
+export function CardChip({ card, index, featured = false, detailHref }: CardChipProps) {
   const [expanded, setExpanded] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const isCarnet = card.kind === 'carnet';
+  const reduceMotion = useReducedMotion();
+  const cardRef = useRef<HTMLElement | null>(null);
+
+  const tiltXTarget = useMotionValue(0);
+  const tiltYTarget = useMotionValue(0);
+  const rotateX = useSpring(tiltXTarget, TILT_SPRING);
+  const rotateY = useSpring(tiltYTarget, TILT_SPRING);
+
+  const spotlightX = useMotionValue(0);
+  const spotlightY = useMotionValue(0);
+  const spotlight = useMotionTemplate`radial-gradient(260px circle at ${spotlightX}px ${spotlightY}px, rgba(232, 51, 106, 0.16), transparent 70%)`;
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (reduceMotion || event.pointerType !== 'mouse') return;
+      const node = cardRef.current;
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      const ratioX = (event.clientX - rect.left) / rect.width;
+      const ratioY = (event.clientY - rect.top) / rect.height;
+      tiltYTarget.set((ratioX - 0.5) * 10);
+      tiltXTarget.set((0.5 - ratioY) * 10);
+      spotlightX.set(event.clientX - rect.left);
+      spotlightY.set(event.clientY - rect.top);
+    },
+    [reduceMotion, tiltXTarget, tiltYTarget, spotlightX, spotlightY],
+  );
+
+  const handlePointerLeave = useCallback(() => {
+    tiltXTarget.set(0);
+    tiltYTarget.set(0);
+    setHovered(false);
+  }, [tiltXTarget, tiltYTarget]);
+
+  const delay = reduceMotion ? 0 : Math.min(index, 5) * 0.07;
 
   return (
-    <article className={`cc-card ${featured ? 'cc-card--featured' : ''} ${expanded ? 'cc-card--open' : ''}`}>
+    <motion.article
+      ref={cardRef}
+      layout={!reduceMotion}
+      className={`cc-card ${featured ? 'cc-card--featured' : ''} ${expanded ? 'cc-card--open' : ''}`}
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 38, scale: 0.93 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -18, scale: 0.92 }}
+      transition={{ ...ENTRANCE_SPRING, delay }}
+      style={reduceMotion ? undefined : { rotateX, rotateY, transformPerspective: 1000 }}
+      onPointerMove={handlePointerMove}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={handlePointerLeave}
+      whileTap={reduceMotion ? undefined : { scale: 0.985 }}
+    >
+      <motion.span
+        className="cc-spotlight"
+        aria-hidden="true"
+        style={{ background: spotlight }}
+        animate={{ opacity: hovered && !reduceMotion ? 1 : 0 }}
+        transition={{ duration: 0.25 }}
+      />
+
       <button className="cc-card-btn" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
         <span className="cc-media">
           {card.imageUrl
@@ -33,19 +102,32 @@ export function CardChip({ card, featured = false, detailHref }: CardChipProps) 
         </span>
       </button>
 
-      {expanded && (
-        <div className="cc-detail">
-          <p>
-            {isCarnet
-              ? 'Ce billet du carnet CELEC a été présenté pendant la conversation.'
-              : 'Cette marque fait partie des références que nous installons et dépannons.'}
-          </p>
-          <a className="cc-link" href={detailHref} target="_blank" rel="noreferrer">
-            {isCarnet ? 'Ouvrir le billet' : 'Ouvrir la fiche'}
-            <ArrowUpRight size={14} />
-          </a>
-        </div>
-      )}
-    </article>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="detail"
+            className="cc-detail"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={reduceMotion
+              ? { duration: 0 }
+              : { height: { type: 'spring', stiffness: 320, damping: 32 }, opacity: { duration: 0.2 } }}
+          >
+            <div className="cc-detail-inner">
+              <p>
+                {isCarnet
+                  ? 'Ce billet du carnet CELEC a été présenté pendant la conversation.'
+                  : 'Cette marque fait partie des références que nous installons et dépannons.'}
+              </p>
+              <a className="cc-link" href={detailHref} target="_blank" rel="noreferrer">
+                {isCarnet ? 'Ouvrir le billet' : 'Ouvrir la fiche'}
+                <ArrowUpRight size={14} />
+              </a>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.article>
   );
 }
