@@ -90,11 +90,11 @@ export function CardChip({ card, index, featured = false, detailHref }: CardChip
             : isCarnet
               ? <span className="cc-media-fallback"><Camera size={26} /></span>
               : <span className="cc-media-fallback cc-media-fallback--brand"><Handshake size={26} /></span>}
-        </span>
-        <span className="cc-body">
-          <span className="cc-badge">{isCarnet ? 'Carnet' : 'Marque'}</span>
-          <strong>{card.title}</strong>
-          {card.subtitle && <em>{card.subtitle}</em>}
+          <span className="cc-overlay">
+            <span className="cc-badge">{isCarnet ? 'Carnet' : 'Marque'}</span>
+            <strong>{card.title}</strong>
+            {card.subtitle && <em>{card.subtitle}</em>}
+          </span>
         </span>
         <span className="cc-foot">
           <span className="cc-foot-hint">{expanded ? 'Refermer' : 'Voir le détail'}</span>
