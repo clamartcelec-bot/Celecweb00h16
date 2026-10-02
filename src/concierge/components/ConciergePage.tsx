@@ -868,12 +868,15 @@ function ActiveView({
 
   return (
     <div className={`concierge-active ${compact ? 'concierge-active--compact' : ''}`}>
-      <div className="concierge-status-row">
-        <div className="concierge-live-dot" />
-        <span>{isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…' : 'À l’écoute'}</span>
-        <span className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}>
-          {timer.formatted}
-        </span>
+      <div className="concierge-active-top">
+        <span className="concierge-avatar" aria-hidden="true">CE</span>
+        <div className="concierge-status-row">
+          <div className="concierge-live-dot" />
+          <span>{isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…' : 'À l’écoute'}</span>
+          <span className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}>
+            {timer.formatted}
+          </span>
+        </div>
       </div>
 
       {timer.warningLevel === 'ending' && (
@@ -883,83 +886,87 @@ function ActiveView({
         </div>
       )}
 
-      <div className="concierge-audio-viz">
-        <AudioBars label="VOUS" variant="user" levels={inputLevels} active={isUserSpeaking && !isMuted} />
-        <AudioBars label="CELEC" variant="celec" levels={outputLevels} active={isAssistantSpeaking} />
-      </div>
-
-      <div className="concierge-speech-card">
-        <span className="concierge-speech-label">CELEC dit</span>
-        <p className={`concierge-speech-text ${displayedReply ? 'concierge-speech-text--live' : ''}`}>
-          {displayedReply || 'Le concierge prend la parole…'}
-        </p>
-      </div>
-
-      {messages.length > 0 && (
-        <div className="concierge-history">
-          <button onClick={onToggleHistory} className="concierge-history-toggle">
-            <History size={15} />
-            Historique de la conversation ({messages.length})
-            <ChevronDown size={15} className={`cc-chevron ${historyOpen ? 'cc-chevron--up' : ''}`} />
-          </button>
-          {historyOpen && (
-            <div className="concierge-history-list">
-              {messages.map((message) => (
-                <div key={message.id} className={`concierge-bubble concierge-bubble--${message.role}`}>
-                  <span className="concierge-bubble-author">{message.role === 'user' ? 'Vous' : 'CELEC'}</span>
-                  <p>{message.text}</p>
-                </div>
-              ))}
-            </div>
-          )}
+      <div className="concierge-stage">
+        <div className="concierge-audio-viz">
+          <AudioBars label="VOUS" variant="user" levels={inputLevels} active={isUserSpeaking && !isMuted} />
+          <AudioBars label="CELEC" variant="celec" levels={outputLevels} active={isAssistantSpeaking} />
         </div>
-      )}
 
-      <div className="concierge-composer">
-        <textarea
-          value={composerText}
-          onChange={(event) => onComposerChange(event.target.value)}
-          onKeyDown={onComposerKeyDown}
-          rows={1}
-          placeholder="Écrivez ou parlez…"
-          className="concierge-composer-input"
-        />
-        <button
-          onClick={() => onSendMessage(composerText)}
-          className="concierge-composer-send"
-          disabled={!composerText.trim()}
-          aria-label="Envoyer le message"
-        >
-          <Send size={18} />
-        </button>
+        <div className="concierge-speech-card">
+          <span className="concierge-speech-label">CELEC dit</span>
+          <p className={`concierge-speech-text ${displayedReply ? 'concierge-speech-text--live' : ''}`}>
+            {displayedReply || 'Le concierge prend la parole…'}
+          </p>
+        </div>
       </div>
 
-      {showQuickPrompts && (
-        <div className="concierge-quick-actions">
-          {QUICK_PROMPTS.map((action) => (
-            <button key={action.label} onClick={() => onQuickAction(action.prompt)} className="concierge-quick-btn">
-              {action.label}
+      <div className="concierge-dock">
+        {messages.length > 0 && (
+          <div className="concierge-history">
+            <button onClick={onToggleHistory} className="concierge-history-toggle">
+              <History size={15} />
+              Historique de la conversation ({messages.length})
+              <ChevronDown size={15} className={`cc-chevron ${historyOpen ? 'cc-chevron--up' : ''}`} />
             </button>
-          ))}
-          <button onClick={() => onQuickAction(CALLBACK_PROMPT)} className="concierge-quick-btn">
-            Être rappelé
+            {historyOpen && (
+              <div className="concierge-history-list">
+                {messages.map((message) => (
+                  <div key={message.id} className={`concierge-bubble concierge-bubble--${message.role}`}>
+                    <span className="concierge-bubble-author">{message.role === 'user' ? 'Vous' : 'CELEC'}</span>
+                    <p>{message.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="concierge-composer">
+          <textarea
+            value={composerText}
+            onChange={(event) => onComposerChange(event.target.value)}
+            onKeyDown={onComposerKeyDown}
+            rows={1}
+            placeholder="Écrivez ou parlez…"
+            className="concierge-composer-input"
+          />
+          <button
+            onClick={() => onSendMessage(composerText)}
+            className="concierge-composer-send"
+            disabled={!composerText.trim()}
+            aria-label="Envoyer le message"
+          >
+            <Send size={18} />
           </button>
         </div>
-      )}
 
-      <div className="concierge-controls">
-        <button
-          onClick={onToggleMute}
-          className={`concierge-mic-btn ${isMuted ? '' : 'concierge-mic-btn--active'}`}
-          aria-label={isMuted ? 'Réactiver le micro' : 'Couper le micro'}
-          aria-pressed={isMuted}
-        >
-          {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-        </button>
-        <button onClick={onEnd} className="concierge-end-btn">
-          <PhoneOff size={20} />
-          Raccrocher
-        </button>
+        {showQuickPrompts && (
+          <div className="concierge-quick-actions">
+            {QUICK_PROMPTS.map((action) => (
+              <button key={action.label} onClick={() => onQuickAction(action.prompt)} className="concierge-quick-btn">
+                {action.label}
+              </button>
+            ))}
+            <button onClick={() => onQuickAction(CALLBACK_PROMPT)} className="concierge-quick-btn">
+              Être rappelé
+            </button>
+          </div>
+        )}
+
+        <div className="concierge-controls">
+          <button
+            onClick={onToggleMute}
+            className={`concierge-mic-btn ${isMuted ? '' : 'concierge-mic-btn--active'}`}
+            aria-label={isMuted ? 'Réactiver le micro' : 'Couper le micro'}
+            aria-pressed={isMuted}
+          >
+            {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+          </button>
+          <button onClick={onEnd} className="concierge-end-btn">
+            <PhoneOff size={20} />
+            Raccrocher
+          </button>
+        </div>
       </div>
     </div>
   );

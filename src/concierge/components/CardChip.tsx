@@ -17,7 +17,7 @@ interface CardChipProps {
   detailHref: string;
 }
 
-const ENTRANCE_SPRING = { type: 'spring', stiffness: 240, damping: 26 } as const;
+const ENTRANCE_SPRING = { type: 'spring', stiffness: 320, damping: 21, mass: 0.9 } as const;
 const TILT_SPRING = { stiffness: 190, damping: 18 } as const;
 
 export function CardChip({ card, index, featured = false, detailHref }: CardChipProps) {
@@ -65,10 +65,10 @@ export function CardChip({ card, index, featured = false, detailHref }: CardChip
       ref={cardRef}
       layout={!reduceMotion}
       className={`cc-card ${featured ? 'cc-card--featured' : ''} ${expanded ? 'cc-card--open' : ''}`}
-      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 38, scale: 0.93 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -18, scale: 0.92 }}
-      transition={{ ...ENTRANCE_SPRING, delay }}
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 96, scale: 0.76, rotate: -4, filter: 'blur(12px)' }}
+      animate={{ opacity: 1, y: 0, scale: 1, rotate: 0, filter: 'blur(0px)' }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -20, scale: 0.9, filter: 'blur(6px)' }}
+      transition={reduceMotion ? { duration: 0 } : { ...ENTRANCE_SPRING, delay }}
       style={reduceMotion ? undefined : { rotateX, rotateY, transformPerspective: 1000 }}
       onPointerMove={handlePointerMove}
       onPointerEnter={() => setHovered(true)}
