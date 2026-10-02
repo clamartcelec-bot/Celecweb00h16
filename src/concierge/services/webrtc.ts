@@ -66,6 +66,7 @@ export async function createRealtimeSession(
 
   dc.addEventListener('open', () => {
     console.log('Realtime data channel open');
+    sendDataChannelEvent(dc, { type: 'response.create' });
   });
 
   dc.addEventListener('message', (event) => {

@@ -186,7 +186,15 @@ export function buildConciergeInstructions(settings: ConciergeSettings | null): 
   const focus = text(settings?.focus_message);
   const maxCards = Number.isFinite(settings?.max_cards) ? Math.min(Math.max(Number(settings?.max_cards), 1), 6) : 3;
 
+  const greeting = text(settings?.greeting);
+
   const sections: string[] = [prompt];
+
+  if (greeting) {
+    sections.push(
+      `DÉBUT DE CONVERSATION\n- Au tout début de l'appel, avant toute autre chose, tu DOIS prononcer exactement cette phrase d'accueil, naturellement et sans la lire:\n« ${greeting} »\n- Ne dis rien d'autre avant cette phrase. Ne la récite pas mécaniquement : dis-la comme si tu accueillais quelqu'un qui vient d'arriver.\n- Après l'accueil, tu attends la réponse du client.`,
+    );
+  }
 
   if (tone) sections.push(`TON\n- ${tone.replace(/\n+/g, '\n- ')}`);
   if (siteInfo) sections.push(`INFORMATIONS DU SITE (à citer oralement, sans afficher de carte)\n${siteInfo}`);

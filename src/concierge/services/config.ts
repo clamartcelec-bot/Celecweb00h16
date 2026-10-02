@@ -17,7 +17,8 @@ export interface ConciergeSettings {
 export const DEFAULT_CONCIERGE_SETTINGS: ConciergeSettings = {
   id: 1,
   enabled: true,
-  greeting: 'Bonjour, vous êtes bien chez CELEC. Que puis-je faire pour vous ?',
+  greeting:
+    'Bonjour, bienvenue chez CELEC, votre électricien à Clamart et ses environs. Dites-moi en quoi puis-je vous être utile. Vous voulez un dépannage, vous voulez des renseignements sur notre société. On est là pour ça. Dites-moi ce que vous voulez.',
   tone: '',
   prompt: '',
   site_info: '',
