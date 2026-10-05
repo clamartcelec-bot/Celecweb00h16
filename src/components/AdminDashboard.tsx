@@ -1202,7 +1202,16 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                       {p.ai_summary && <p className="crn-draft-summary">{p.ai_summary}</p>}
                       <div className="crn-draft-meta">
                         {p.author && <span>{p.author}</span>}
-                        {p.city && <span><MapPin size={10} /> {p.city}</span>}
+                        {p.city && p.lat !== 0 && <span><MapPin size={10} /> {p.city}</span>}
+                        {(!p.city || p.lat === 0) && (
+                          <button
+                            className="crn-gps-missing"
+                            title="Absence de donnees geographiques — cliquer pour ajouter la ville"
+                            onClick={(e) => { e.stopPropagation(); openEdit(p); }}
+                          >
+                            <MapPin size={10} /> GPS ?
+                          </button>
+                        )}
                         <span>{fmtDate(p.created_at)}</span>
                         {brands.length > 0 && <span className="crn-brands-inline">{brands.join(', ')}</span>}
                       </div>
@@ -1313,7 +1322,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
               {thumbUrl ? <div className="crn-img-wrap"><img src={thumbUrl} alt={p.title} className="crn-img" />{imgCount > 1 && <span className="crn-img-count">{imgCount} photos</span>}</div> : <div className="crn-img crn-img-empty"><ImageIcon size={24} /></div>}
               <div className="crn-card-body">
                 <div className="crn-card-top"><h4>{p.title}</h4>{p.source === 'telegram' && <span className="crn-badge-source crn-badge-sm">TG</span>}{p.entry_type && <span className="crn-badge-type">{ENTRY_TYPES.find(t => t.value === p.entry_type)?.label || p.entry_type}</span>}</div>
-                <div className="crn-card-meta">{p.author && <span>{p.author}</span>}{p.city && <span><MapPin size={10} /> {p.city}</span>}<span>{fmtDate(p.created_at)}</span></div>
+                <div className="crn-card-meta">{p.author && <span>{p.author}</span>}{p.city && p.lat !== 0 && <span><MapPin size={10} /> {p.city}</span>}{(!p.city || p.lat === 0) && <button className="crn-gps-missing" title="Absence de donnees geographiques — cliquer pour ajouter la ville" onClick={() => openEdit(p)}><MapPin size={10} /> GPS ?</button>}<span>{fmtDate(p.created_at)}</span></div>
                 {brands.length > 0 && <div className="crn-card-brands">{brands.join(', ')}</div>}
                 {p.description && <p className="crn-card-desc">{p.description}</p>}
                 <div className="crn-card-actions">
