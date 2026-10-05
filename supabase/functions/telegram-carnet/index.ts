@@ -53,6 +53,7 @@ interface BatchRow {
 interface StoredImage {
   url: string;
   position: number;
+  gps?: { lat: number; lng: number } | null;
 }
 
 interface MessageInput {
@@ -119,20 +120,22 @@ Deno.serve(async (req: Request) => {
 
     // Download the photo of THIS message (Telegram sends several sizes of the SAME image,
     // so only the largest one is kept) plus an image sent as a file, if any.
+    // EXIF GPS survives only on files sent as "document"; Telegram strips it from
+    // compressed photos, so extraction may return null and that is expected.
     const storedImages: StoredImage[] = [];
     if (input.photos.length > 0) {
       const best = input.photos[input.photos.length - 1];
-      const url = await fetchAndStoreImage(supabase, botToken, best.file_id, storedImages.length);
-      if (url) storedImages.push({ url, position: storedImages.length });
+      const stored = await fetchAndStoreImage(supabase, botToken, best.file_id, storedImages.length);
+      if (stored) storedImages.push({ url: stored.url, gps: stored.gps, position: storedImages.length });
     }
     if (input.document && input.document.mime_type?.startsWith("image/")) {
-      const url = await fetchAndStoreImage(
+      const stored = await fetchAndStoreImage(
         supabase,
         botToken,
         input.document.file_id,
         storedImages.length
       );
-      if (url) storedImages.push({ url, position: storedImages.length });
+      if (stored) storedImages.push({ url: stored.url, gps: stored.gps, position: storedImages.length });
     }
 
     const { error: msgErr } = await supabase.from("telegram_batch_messages").insert({
@@ -489,6 +492,10 @@ async function finalizeBatch(
     const imgs = Array.isArray(m.image_urls) ? (m.image_urls as StoredImage[]) : [];
     for (const img of imgs) {
       if (img?.url) allImages.push(img.url);
+      if (img?.gps && lat === 0 && lng === 0) {
+        lat = Number(img.gps.lat) || 0;
+        lng = Number(img.gps.lng) || 0;
+      }
     }
     if (m.location && lat === 0) {
       lat = Number(m.location.latitude) || 0;
@@ -618,6 +625,7 @@ async function finalizeBatch(
     `Titre : ${finalTitle}`,
   ];
   if (city) replyParts.push(`Lieu : ${city}`);
+  if (!city && lat !== 0) replyParts.push("Position GPS detectee sur la photo");
   if (ai.brands.length > 0) replyParts.push(`Marques : ${ai.brands.join(", ")}`);
   if (voiceTranscript) {
     replyParts.push(
@@ -925,7 +933,7 @@ async function fetchAndStoreImage(
   botToken: string,
   fileId: string,
   position: number
-): Promise<string | null> {
+): Promise<{ url: string; gps: { lat: number; lng: number } | null } | null> {
   // Telegram occasionally answers too slowly on the first try: retry once before giving up.
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 1200));
@@ -935,6 +943,7 @@ async function fetchAndStoreImage(
       const resp = await fetch(fileUrl);
       if (!resp.ok) continue;
       const blob = await resp.blob();
+      const gps = await extractExifGps(blob);
       const ext = fileUrl.split(".").pop()?.split("?")[0] || "jpg";
       const path = `telegram/${Date.now()}-${position}-${Math.random()
         .toString(36)
@@ -945,12 +954,102 @@ async function fetchAndStoreImage(
       });
       if (error) continue;
       const { data } = supabase.storage.from("photos").getPublicUrl(path);
-      return data.publicUrl;
+      return { url: data.publicUrl, gps };
     } catch {
       continue;
     }
   }
   return null;
+}
+
+/* ── EXIF GPS extraction ── */
+
+// Reads the GPS coordinates from a JPEG's EXIF block. Returns null for photos
+// without EXIF (Telegram compressed photos) or without a GPS tag.
+async function extractExifGps(blob: Blob): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const view = new DataView(await blob.arrayBuffer());
+    if (view.byteLength < 12 || view.getUint16(0) !== 0xffd8) return null;
+    let offset = 2;
+    while (offset + 4 < view.byteLength) {
+      const marker = view.getUint16(offset);
+      const size = view.getUint16(offset + 2);
+      if (marker === 0xffe1 && offset + 10 < view.byteLength) {
+        let isExif = true;
+        for (let i = 0; i < 4; i++) {
+          if (view.getUint8(offset + 4 + i) !== "Exif".charCodeAt(i)) {
+            isExif = false;
+            break;
+          }
+        }
+        if (isExif) return parseTiffGps(view, offset + 10);
+      }
+      if (marker === 0xffda) break;
+      offset += 2 + size;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseTiffGps(view: DataView, tiffStart: number): { lat: number; lng: number } | null {
+  if (tiffStart + 8 > view.byteLength) return null;
+  const little = view.getUint16(tiffStart) === 0x4949;
+  const u16 = (o: number) => view.getUint16(o, little);
+  const u32 = (o: number) => view.getUint32(o, little);
+  if (u16(tiffStart + 2) !== 42) return null;
+  const ifd0 = tiffStart + u32(tiffStart + 4);
+  if (ifd0 + 2 > view.byteLength) return null;
+
+  let gpsStart = 0;
+  const entries0 = u16(ifd0);
+  for (let i = 0; i < entries0; i++) {
+    const e = ifd0 + 2 + i * 12;
+    if (e + 12 > view.byteLength) break;
+    if (u16(e) === 0x8825) {
+      gpsStart = tiffStart + u32(e + 8);
+      break;
+    }
+  }
+  if (!gpsStart || gpsStart + 2 > view.byteLength) return null;
+
+  const readRationals = (base: number, count: number): number[] => {
+    const out: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const num = u32(base + i * 8);
+      const den = u32(base + i * 8 + 4);
+      out.push(den === 0 ? 0 : num / den);
+    }
+    return out;
+  };
+
+  let latRef = "N";
+  let lngRef = "E";
+  let latVals: number[] = [];
+  let lngVals: number[] = [];
+  const entries = u16(gpsStart);
+  for (let i = 0; i < entries; i++) {
+    const e = gpsStart + 2 + i * 12;
+    if (e + 12 > view.byteLength) break;
+    const tag = u16(e);
+    const type = u16(e + 2);
+    const count = u32(e + 4);
+    const bytesPer = type === 5 || type === 10 ? 8 : type === 2 || type === 1 || type === 7 ? 1 : type === 3 ? 2 : 4;
+    const base = count * bytesPer > 4 ? tiffStart + u32(e + 8) : e + 8;
+    if (tag === 1) latRef = String.fromCharCode(view.getUint8(base));
+    else if (tag === 2) latVals = readRationals(base, Math.min(count, 3));
+    else if (tag === 3) lngRef = String.fromCharCode(view.getUint8(base));
+    else if (tag === 4) lngVals = readRationals(base, Math.min(count, 3));
+  }
+  if (latVals.length === 0 || lngVals.length === 0) return null;
+
+  const dmsToDeg = (v: number[]) => (v[0] || 0) + (v[1] || 0) / 60 + (v[2] || 0) / 3600;
+  const lat = dmsToDeg(latVals) * (latRef === "S" ? -1 : 1);
+  const lng = dmsToDeg(lngVals) * (lngRef === "W" ? -1 : 1);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat === 0 && lng === 0) return null;
+  return { lat, lng };
 }
 
 async function sendTelegram(botToken: string, chatId: number, text: string) {

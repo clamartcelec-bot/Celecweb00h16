@@ -773,6 +773,89 @@ const ENTRY_TYPES = [
 
 const emptyForm: PhotoForm = { title: '', author: '', city: '', cityLat: 0, cityLng: 0, description: '', published: true, date: new Date().toISOString().slice(0, 10), brands: [], entryType: 'intervention' };
 
+// Reads GPS coordinates from a JPEG file's EXIF metadata. Returns null when the
+// file has no EXIF block (Telegram photos, screenshots) or no GPS tag.
+async function readExifGps(file: File): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const head = new DataView(await file.slice(0, 128).arrayBuffer());
+    if (head.byteLength < 4 || head.getUint16(0) !== 0xffd8) return null;
+    let exifSize = 0;
+    let tiffOffset = 0;
+    for (let o = 2; o + 4 < head.byteLength; o += 2 + exifSize) {
+      const marker = head.getUint16(o);
+      exifSize = head.getUint16(o + 2);
+      if (marker === 0xffe1) { tiffOffset = o + 10; break; }
+      if (marker === 0xffda) return null;
+    }
+    if (!tiffOffset) return null;
+    const tiffBuf = await file.slice(tiffOffset, tiffOffset + Math.min(exifSize, 256 * 1024)).arrayBuffer();
+    const view = new DataView(tiffBuf);
+    if (view.byteLength < 8) return null;
+    return parseTiffGps(view, 0);
+  } catch {
+    return null;
+  }
+}
+
+function parseTiffGps(view: DataView, tiffStart: number): { lat: number; lng: number } | null {
+  if (tiffStart + 8 > view.byteLength) return null;
+  const little = view.getUint16(tiffStart) === 0x4949;
+  const u16 = (o: number) => view.getUint16(o, little);
+  const u32 = (o: number) => view.getUint32(o, little);
+  if (u16(tiffStart + 2) !== 42) return null;
+  const ifd0 = tiffStart + u32(tiffStart + 4);
+  if (ifd0 + 2 > view.byteLength) return null;
+
+  let gpsStart = 0;
+  const entries0 = u16(ifd0);
+  for (let i = 0; i < entries0; i++) {
+    const e = ifd0 + 2 + i * 12;
+    if (e + 12 > view.byteLength) break;
+    if (u16(e) === 0x8825) {
+      gpsStart = tiffStart + u32(e + 8);
+      break;
+    }
+  }
+  if (!gpsStart || gpsStart + 2 > view.byteLength) return null;
+
+  const readRationals = (base: number, count: number): number[] => {
+    const out: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const num = u32(base + i * 8);
+      const den = u32(base + i * 8 + 4);
+      out.push(den === 0 ? 0 : num / den);
+    }
+    return out;
+  };
+
+  let latRef = 'N';
+  let lngRef = 'E';
+  let latVals: number[] = [];
+  let lngVals: number[] = [];
+  const entries = u16(gpsStart);
+  for (let i = 0; i < entries; i++) {
+    const e = gpsStart + 2 + i * 12;
+    if (e + 12 > view.byteLength) break;
+    const tag = u16(e);
+    const type = u16(e + 2);
+    const count = u32(e + 4);
+    const bytesPer = type === 5 || type === 10 ? 8 : type === 2 || type === 1 || type === 7 ? 1 : type === 3 ? 2 : 4;
+    const base = count * bytesPer > 4 ? tiffStart + u32(e + 8) : e + 8;
+    if (tag === 1) latRef = String.fromCharCode(view.getUint8(base));
+    else if (tag === 2) latVals = readRationals(base, Math.min(count, 3));
+    else if (tag === 3) lngRef = String.fromCharCode(view.getUint8(base));
+    else if (tag === 4) lngVals = readRationals(base, Math.min(count, 3));
+  }
+  if (latVals.length === 0 || lngVals.length === 0) return null;
+
+  const dmsToDeg = (v: number[]) => (v[0] || 0) + (v[1] || 0) / 60 + (v[2] || 0) / 3600;
+  const lat = dmsToDeg(latVals) * (latRef === 'S' ? -1 : 1);
+  const lng = dmsToDeg(lngVals) * (lngRef === 'W' ? -1 : 1);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat === 0 && lng === 0) return null;
+  return { lat, lng };
+}
+
 // Brand names are matched loosely so a typo in spacing, accents or "&" still links the
 // carnet entry to the right partner sheet.
 const normalizeBrandName = (s: string) =>
@@ -893,6 +976,31 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
     setFiles(prev => [...prev, ...newFiles]);
     setPreviews(prev => [...prev, ...newFiles.map(f => URL.createObjectURL(f))]);
     if (fileRef.current) fileRef.current.value = '';
+    void detectGpsFromFiles(newFiles);
+  };
+
+  // Reads the EXIF GPS of the first photo that has one and pre-fills the city field
+  // with the nearest known commune. Telegram photos (stripped EXIF) simply do nothing.
+  const detectGpsFromFiles = async (newFiles: File[]) => {
+    if (!supabase || form.cityLat !== 0) return;
+    for (const f of newFiles) {
+      const gps = await readExifGps(f);
+      if (!gps) continue;
+      const { data: cities } = await supabase
+        .from('french_cities')
+        .select('*');
+      if (!cities || cities.length === 0) return;
+      let best: FrenchCity | null = null;
+      let bestD = Infinity;
+      for (const c of cities as FrenchCity[]) {
+        const d = (c.lat - gps.lat) ** 2 + ((c.lng - gps.lng) * Math.cos((gps.lat * Math.PI) / 180)) ** 2;
+        if (d < bestD) { bestD = d; best = c; }
+      }
+      if (best) {
+        setForm(prev => (prev.cityLat !== 0 ? prev : { ...prev, city: best!.name, cityLat: best!.lat, cityLng: best!.lng }));
+      }
+      return;
+    }
   };
 
   const removeNewFile = (idx: number) => {
@@ -1074,7 +1182,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
           <button className="crn-gallery-add" onClick={() => fileRef.current?.click()}><Plus size={20} /><span>Ajouter</span></button>
           <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFiles} hidden />
         </div>
-        <p className="crn-hint">Les images sont optionnelles. Vous pouvez en ajouter plusieurs.</p>
+        <p className="crn-hint">Les images sont optionnelles. Si une photo contient des donnees GPS, la ville est remplie automatiquement.</p>
         <div className="crn-fields">
           <div className="crn-row2">
             <label><span>Titre</span><input className="field" placeholder="Ex: Renovation tableau" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></label>
