@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MapPin, ArrowUpRight,
   Receipt, Search, Camera, Plus, Trash2,
   Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
-  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Mic
+  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Mic, Square
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ConciergeTab } from '@/components/ConciergeTab';
@@ -93,6 +93,7 @@ interface CarnetSettings {
   minimax_base_url: string;
   batch_window_seconds: number;
   ai_language: string;
+  rewrite_model?: string | null;
   updated_at: string;
 }
 
@@ -116,6 +117,14 @@ const modelPresets: { value: string; label: string }[] = [
 ];
 
 const isMiniMaxModel = (model: string) => /^minimax/i.test(model.trim());
+
+const rewriteModelPresets: { value: string; label: string }[] = [
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (rapide)' },
+  { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+  { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano (le plus leger)' },
+  { value: 'MiniMax-M3', label: 'MiniMax M3' },
+  { value: 'MiniMax-Text-01', label: 'MiniMax Text-01' },
+];
 
 interface AdminDashboardProps {
   onClose: () => void;
@@ -539,6 +548,7 @@ function CarnetSettingsTab() {
       minimax_base_url: settings.minimax_base_url,
       batch_window_seconds: Number(settings.batch_window_seconds) || 120,
       ai_language: settings.ai_language,
+      rewrite_model: (settings.rewrite_model || 'gpt-4o-mini').trim() || 'gpt-4o-mini',
       updated_at: new Date().toISOString(),
     }).eq('id', 1);
     if (error) { setErr(error.message); setSaving(false); return; }
@@ -646,6 +656,34 @@ function CarnetSettingsTab() {
         <p className="ai-settings-note">
           Les modeles dont le nom commence par MiniMax passent par le fournisseur MiniMax,
           tous les autres par OpenAI.
+        </p>
+
+        <label>
+          <span>Modele de reecriture des descriptions</span>
+          <select
+            className="field"
+            value={rewriteModelPresets.some(m => m.value === (settings.rewrite_model || 'gpt-4o-mini')) ? (settings.rewrite_model || 'gpt-4o-mini') : '__custom__'}
+            onChange={e => setSettings({ ...settings, rewrite_model: e.target.value === '__custom__' ? '' : e.target.value })}
+          >
+            {rewriteModelPresets.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            <option value="__custom__">Autre modele (saisie libre)</option>
+          </select>
+        </label>
+        {!rewriteModelPresets.some(m => m.value === (settings.rewrite_model || 'gpt-4o-mini')) && (
+          <label>
+            <span>Nom du modele de reecriture</span>
+            <input
+              className="field"
+              placeholder="Ex: gpt-4o-mini"
+              value={settings.rewrite_model || ''}
+              onChange={e => setSettings({ ...settings, rewrite_model: e.target.value })}
+            />
+          </label>
+        )}
+        <p className="ai-settings-note">
+          Utilise uniquement quand vous dictez une description a l'oral : un petit modele
+          rapide suffit, il transcrit puis reformule le texte. L'analyse des photos Telegram
+          garde son propre modele ci-dessus.
         </p>
 
         {isMiniMaxModel(settings.ai_model) && (
@@ -1176,24 +1214,21 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                         <button className="crn-btn-publish" onClick={() => handlePublish(p.id)} disabled={publishing === p.id}><Eye size={13} /> {publishing === p.id ? '...' : 'Publier'}</button>
                       </div>
                       {p.description && <div className="crn-raw-block"><span className="crn-raw-label">Description</span><p>{p.description}</p></div>}
-                      <div className="crn-dictate-row">
-                        <button
-                          className={`crn-mic-btn ${recordingFor === p.id ? 'recording' : ''}`}
-                          title={recordingFor === p.id ? 'Arreter et reecrire avec l IA' : 'Dicter la nouvelle description'}
-                          onClick={() => toggleRecording(p)}
-                          disabled={rewriting && descriptionTarget?.id === p.id}
-                        >
-                          <Mic size={14} />
-                        </button>
-                        <div className="crn-mic-wave" aria-hidden="true">
-                          {Array.from({ length: 18 }).map((_, i) => <span key={i} />)}
-                        </div>
-                        <span className="crn-mic-status">
-                          {rewriting && descriptionTarget?.id === p.id
-                            ? 'L IA reecrit...'
-                            : recordingFor === p.id
-                              ? 'J ecoute... appuyez pour valider'
-                              : 'Dictée vocale'}</span>
+                      <div className={`crn-dictate-row ${recordingFor === p.id ? 'recording' : ''}`}>
+                        {recordingFor === p.id ? (
+                          <>
+                            <div className="crn-mic-wave" aria-hidden="true">
+                              {Array.from({ length: 18 }).map((_, i) => <span key={i} />)}
+                            </div>
+                            <button className="crn-dictate-finish" onClick={() => toggleRecording(p)}>
+                              <Square size={11} /> Terminer
+                            </button>
+                          </>
+                        ) : (
+                          <button className="crn-dictate-start" onClick={() => toggleRecording(p)} disabled={rewriting && descriptionTarget?.id === p.id}>
+                            <Mic size={13} /> {rewriting && descriptionTarget?.id === p.id ? 'L IA reecrit...' : 'Modifier a l oral'}
+                          </button>
+                        )}
                         {err && descriptionTarget?.id === p.id && <span className="crn-mic-error">{err}</span>}
                       </div>
                       {(p.images?.length ?? 0) > 0 && (

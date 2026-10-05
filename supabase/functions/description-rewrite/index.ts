@@ -118,11 +118,11 @@ Deno.serve(async (req: Request) => {
 
     const { data: settings } = await supabase
       .from("carnet_settings")
-      .select("ai_model, minimax_api_key, minimax_base_url, ai_style, ai_language")
+      .select("rewrite_model, minimax_api_key, minimax_base_url, ai_style, ai_language")
       .eq("id", 1)
       .maybeSingle();
 
-    const aiModel = (settings?.ai_model || "gpt-4o-mini").trim();
+    const aiModel = ((settings?.rewrite_model || "").trim() || "gpt-4o-mini");
     let url = "https://api.openai.com/v1/chat/completions";
     let apiKey = openaiKey || "";
     let provider = "openai";
@@ -167,8 +167,11 @@ Deno.serve(async (req: Request) => {
           { role: "system", content: system },
           { role: "user", content: userPrompt },
         ],
-        max_tokens: 600,
+        max_tokens: 800,
         temperature: 0.3,
+        // Keep reasoning models from emitting chain-of-thought alongside the answer.
+        reasoning_effort: "low",
+        chat_template_kwargs: { thinking: false },
       }),
     });
 
@@ -182,7 +185,10 @@ Deno.serve(async (req: Request) => {
 
     const data = await resp.json();
     const content = data.choices?.[0]?.message?.content;
-    const text = typeof content === "string" ? content.trim() : "";
+    let text = typeof content === "string" ? content : "";
+    // Reasoning models emit their chain of thought inside <think>/<thinking> tags;
+    // strip it so only the final description is stored.
+    text = text.replace(/<(?:think|thinking|reasoning)>[\s\S]*?<\/(?:think|thinking|reasoning)>/gi, "").trim();
     if (!text) {
       return new Response(JSON.stringify({ error: "Reponse IA vide" }), {
         status: 502,
@@ -190,7 +196,11 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const cleaned = text.replace(/^["'`]+|["'`]+$/g, "").trim();
+    const cleaned = text
+      .replace(/^```[a-z]*\n?/i, "")
+      .replace(/```\s*$/, "")
+      .replace(/^"|"$/g, "")
+      .trim();
     return new Response(JSON.stringify({ description: cleaned, transcript: prompt, provider, model: aiModel }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
