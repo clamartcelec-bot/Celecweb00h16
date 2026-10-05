@@ -14,13 +14,14 @@ interface CardChipProps {
   card: ConciergeCard;
   index: number;
   featured?: boolean;
+  sizeClass?: string;
   detailHref: string;
 }
 
-const ENTRANCE_SPRING = { type: 'spring', stiffness: 320, damping: 21, mass: 0.9 } as const;
+const ENTRANCE_EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 const TILT_SPRING = { stiffness: 190, damping: 18 } as const;
 
-export function CardChip({ card, index, featured = false, detailHref }: CardChipProps) {
+export function CardChip({ card, index, featured = false, sizeClass = '', detailHref }: CardChipProps) {
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState(false);
   const isCarnet = card.kind === 'carnet';
@@ -64,11 +65,11 @@ export function CardChip({ card, index, featured = false, detailHref }: CardChip
     <motion.article
       ref={cardRef}
       layout={!reduceMotion}
-      className={`cc-card ${featured ? 'cc-card--featured' : ''} ${expanded ? 'cc-card--open' : ''}`}
-      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 96, scale: 0.76, rotate: -4, filter: 'blur(12px)' }}
-      animate={{ opacity: 1, y: 0, scale: 1, rotate: 0, filter: 'blur(0px)' }}
-      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -20, scale: 0.9, filter: 'blur(6px)' }}
-      transition={reduceMotion ? { duration: 0 } : { ...ENTRANCE_SPRING, delay }}
+      className={`cc-card ${featured ? 'cc-card--featured' : ''} ${sizeClass} ${expanded ? 'cc-card--open' : ''}`}
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97 }}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.5, ease: ENTRANCE_EASE, delay }}
       style={reduceMotion ? undefined : { rotateX, rotateY, transformPerspective: 1000 }}
       onPointerMove={handlePointerMove}
       onPointerEnter={() => setHovered(true)}

@@ -1136,8 +1136,10 @@
 
 .concierge-card-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 108px;
+  grid-auto-flow: dense;
+  gap: 10px;
 }
 
 /* ─── CARTE BILLET / MARQUE ─── */
@@ -1148,14 +1150,14 @@
   overflow: hidden;
   background: #fff;
   border: 1px solid #c8ccd0;
-  border-radius: 20px;
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.05);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
   transition: border-color 0.25s, box-shadow 0.25s;
 }
 
 .cc-card:hover {
   border-color: #b0b6bb;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.1);
 }
 
 .cc-card--open {
@@ -1164,8 +1166,18 @@
 }
 
 .cc-card--featured {
+  grid-column: span 2;
+  grid-row: span 2;
   border-color: #c8ccd0;
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.07);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.07);
+}
+
+.cc-card--wide {
+  grid-column: span 2;
+}
+
+.cc-card--tall {
+  grid-row: span 2;
 }
 
 .cc-spotlight {
@@ -1197,8 +1209,10 @@
   display: block;
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 3;
-  border-radius: 14px;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  border-radius: 0;
   overflow: hidden;
   background: #f2efea;
 }
@@ -1275,7 +1289,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 6px 2px;
+  padding: 7px 10px 9px;
 }
 
 .cc-foot-hint {
@@ -1362,20 +1376,16 @@
 }
 
 @media (min-width: 720px) {
-  .cc-card--featured {
-    grid-column: span 2;
-  }
-
-  .cc-card--featured .cc-media {
-    aspect-ratio: 16 / 9;
-  }
-
   .cc-card--featured .cc-overlay strong {
     font-size: 20px;
   }
 
   .cc-card--featured .cc-overlay {
     padding: 16px 18px 18px;
+  }
+
+  .cc-card--wide .cc-overlay strong {
+    font-size: 18px;
   }
 }
 
@@ -1385,28 +1395,13 @@
   }
 
   .concierge-card-list {
-    display: flex;
-    gap: 12px;
-    margin: 0 -4px;
-    padding: 4px;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    scroll-padding: 4px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-
-  .concierge-card-list::-webkit-scrollbar {
-    display: none;
-  }
-
-  .concierge-card-list > * {
-    flex: 0 0 82%;
-    scroll-snap-align: center;
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: 92px;
+    gap: 8px;
   }
 
   .cc-dots {
-    display: flex;
+    display: none;
   }
 
   .cc-detail-inner {

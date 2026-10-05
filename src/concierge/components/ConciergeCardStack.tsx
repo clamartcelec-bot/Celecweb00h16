@@ -9,6 +9,14 @@ interface ConciergeCardStackProps {
   detailHrefFor: (card: ConciergeCard) => string;
 }
 
+const cardSizeClass = (index: number, total: number): string => {
+  if (index === 0) return 'cc-card--featured';
+  if (index === 1) return 'cc-card--wide';
+  if (index === 2) return 'cc-card--tall';
+  if (total === 4 && index === 3) return 'cc-card--wide';
+  return '';
+};
+
 export function ConciergeCardStack({ cards, ended, detailHrefFor }: ConciergeCardStackProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -48,6 +56,7 @@ export function ConciergeCardStack({ cards, ended, detailHrefFor }: ConciergeCar
               card={card}
               index={index}
               featured={index === 0}
+              sizeClass={cardSizeClass(index, cards.length)}
               detailHref={detailHrefFor(card)}
             />
           ))}
