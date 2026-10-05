@@ -35,36 +35,99 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    let body: { prompt?: string };
-    try {
-      body = await req.json();
-    } catch {
-      return new Response(JSON.stringify({ error: "Invalid body" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const contentType = req.headers.get("Content-Type") || "";
+    const isAudio = contentType.startsWith("audio/") || contentType.includes("multipart/form-data");
 
-    const prompt = (body.prompt || "").trim().slice(0, 4000);
-    if (!prompt) {
-      return new Response(JSON.stringify({ error: "Prompt requis" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    let prompt = "";
+    let instructions = "";
+    let currentDescription = "";
+    let language = "fr";
+
+    if (isAudio) {
+      let form: FormData;
+      try {
+        form = await req.formData();
+      } catch {
+        return new Response(JSON.stringify({ error: "Invalid form data" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const audioFile = form.get("audio");
+      if (!(audioFile instanceof File)) {
+        return new Response(JSON.stringify({ error: "Audio requis" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (audioFile.size > 25 * 1024 * 1024) {
+        return new Response(JSON.stringify({ error: "Audio trop volumineux (max 25 Mo)" }), {
+          status: 413,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      instructions = String(form.get("instructions") || "");
+      currentDescription = String(form.get("current_description") || "");
+      language = String(form.get("language") || "fr");
+
+      if (!openaiKey) {
+        return new Response(JSON.stringify({ error: "Transcription indisponible" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const formData = new FormData();
+      formData.append("file", audioFile, "voice.webm");
+      formData.append("model", "whisper-1");
+      formData.append("language", (language || "fr").slice(0, 2).toLowerCase());
+      const whisperResp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${openaiKey}` },
+        body: formData,
       });
+      if (!whisperResp.ok) {
+        const detail = await whisperResp.text().catch(() => "");
+        return new Response(JSON.stringify({ error: `Transcription impossible: ${detail.slice(0, 150)}` }), {
+          status: 502,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const whisperData = await whisperResp.json();
+      prompt = String(whisperData.text || "").trim();
+      if (!prompt) {
+        return new Response(JSON.stringify({ error: "Aucune parole detectee" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else {
+      let body: { prompt?: string; instructions?: string; current_description?: string };
+      try {
+        body = await req.json();
+      } catch {
+        return new Response(JSON.stringify({ error: "Invalid body" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      prompt = (body.prompt || "").trim().slice(0, 4000);
+      instructions = (body.instructions || "").trim().slice(0, 2000);
+      currentDescription = (body.current_description || "").trim().slice(0, 4000);
     }
 
     const { data: settings } = await supabase
       .from("carnet_settings")
-      .select("ai_model, minimax_api_key, minimax_base_url, ai_style")
+      .select("ai_model, minimax_api_key, minimax_base_url, ai_style, ai_language")
       .eq("id", 1)
       .maybeSingle();
 
-    const model = (settings?.ai_model || "gpt-4o-mini").trim();
+    const aiModel = (settings?.ai_model || "gpt-4o-mini").trim();
     let url = "https://api.openai.com/v1/chat/completions";
     let apiKey = openaiKey || "";
     let provider = "openai";
 
-    if (/^minimax/i.test(model)) {
+    if (/^minimax/i.test(aiModel)) {
       apiKey = minimaxKey || (settings?.minimax_api_key || "").trim();
       const base = (settings?.minimax_base_url || "https://api.minimax.io/v1").replace(/\/+$/, "");
       url = `${base}/chat/completions`;
@@ -74,16 +137,23 @@ Deno.serve(async (req: Request) => {
     if (!apiKey) {
       return new Response(JSON.stringify({ error: "Aucune cle IA configuree" }), {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const system = [
       "Tu reecris la description d'un billet du carnet de bord de CELEC, electricien en region parisienne.",
       "Tu reponds UNIQUEMENT par la nouvelle description, sans guillemets, sans titre, sans explication.",
-      "Tu gardes tous les faits du texte et de la dictee, tu ameliores la forme, la clarte et la precision.",
+      "Tu gardes tous les faits du texte actuel et de la dictee du technicien, tu ameliores la forme, la clarte et la precision.",
       settings?.ai_style ? `Style de redaction demande : ${settings.ai_style}.` : "",
     ].filter(Boolean).join("\n");
+
+    const userPrompt = [
+      currentDescription ? `Texte actuel : ${currentDescription}` : "",
+      prompt ? `Dictee du technicien : ${prompt}` : "",
+      instructions ? `Instructions : ${instructions}` : "",
+      "Reecris la description en tenant compte de la dictee et des instructions. Garde les faits, ameliore la forme. Reponds uniquement par la nouvelle description, sans guillemets ni explications.",
+    ].filter(Boolean).join("\n\n");
 
     const resp = await fetch(url, {
       method: "POST",
@@ -92,10 +162,10 @@ Deno.serve(async (req: Request) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model,
+        model: aiModel,
         messages: [
           { role: "system", content: system },
-          { role: "user", content: prompt },
+          { role: "user", content: userPrompt },
         ],
         max_tokens: 600,
         temperature: 0.3,
@@ -121,7 +191,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const cleaned = text.replace(/^["'`]+|["'`]+$/g, "").trim();
-    return new Response(JSON.stringify({ description: cleaned, provider, model }), {
+    return new Response(JSON.stringify({ description: cleaned, transcript: prompt, provider, model: aiModel }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

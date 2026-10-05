@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MapPin, ArrowUpRight,
   Receipt, Search, Camera, Plus, Trash2,
   Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
-  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Sparkles
+  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Mic
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ConciergeTab } from '@/components/ConciergeTab';
@@ -741,7 +741,7 @@ const normalizeBrandName = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
 
 function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partners: PartnerRow[]; onRefresh: () => Promise<void> }) {
-  const [mode, setMode] = useState<'list' | 'add' | 'edit' | 'settings' | 'description'>('list');
+  const [mode, setMode] = useState<'list' | 'add' | 'edit' | 'settings'>('list');
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<PhotoForm>(emptyForm);
   const [files, setFiles] = useState<File[]>([]);
@@ -759,9 +759,12 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
   const [showBrandDropdown, setShowBrandDropdown] = useState(false);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [descriptionTarget, setDescriptionTarget] = useState<PhotoRow | null>(null);
-  const [descriptionDraft, setDescriptionDraft] = useState('');
-  const [descriptionInstructions, setDescriptionInstructions] = useState('');
   const [rewriting, setRewriting] = useState(false);
+  const [recordingFor, setRecordingFor] = useState<string | null>(null);
+  const [micError, setMicError] = useState('');
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
   const brandInputRef = useRef<HTMLDivElement>(null);
   const cityInputRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -937,43 +940,66 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
     await onRefresh();
   };
 
-  const startDescriptionEdit = (p: PhotoRow) => {
-    setDescriptionTarget(p);
-    setDescriptionDraft(p.description ?? '');
-    setDescriptionInstructions('');
-    setMode('description');
+  const startRecording = async (p: PhotoRow) => {
+    setMicError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        setRecordingFor(null);
+        if (blob.size > 1000) void rewriteDescriptionFromAudio(p, blob);
+        else setErr('Enregistrement trop court.');
+      };
+      recorder.start();
+      setRecordingFor(p.id);
+      setDescriptionTarget(p);
+    } catch {
+      setMicError('Micro inaccessible. Autorisez le micro dans votre navigateur.');
+    }
   };
 
-  const applyDescriptionRewrite = async () => {
-    if (!supabase || !descriptionTarget) return;
+  const toggleRecording = (p: PhotoRow) => {
+    if (recordingFor === p.id) {
+      mediaRecorderRef.current?.stop();
+    } else {
+      void startRecording(p);
+    }
+  };
+
+  const rewriteDescriptionFromAudio = async (p: PhotoRow, audio: Blob) => {
+    if (!supabase) return;
     setRewriting(true); setErr('');
+    setDescriptionTarget(p);
     try {
-      const prompt = [
-        `Texte actuel : ${descriptionTarget.description ?? descriptionDraft}`,
-        `Transcription vocale : ${descriptionDraft}`,
-        `Instructions : ${descriptionInstructions || 'Reformule de maniere claire et professionnelle.'}`,
-        'Reecris la description en tenant compte des instructions. Garde les faits, ameliore la forme. Reponds uniquement par la nouvelle description, sans guillemets ni explications.',
-      ].join('\n');
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       if (!token) throw new Error('Session expiree.');
+      const form = new FormData();
+      form.append('audio', audio, 'voice.webm');
+      form.append('current_description', p.description ?? '');
+      form.append('language', 'fr');
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/description-rewrite`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ prompt }),
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
       });
-      if (!res.ok) throw new Error('Reecriture impossible.');
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof json.error === 'string' ? json.error : 'Reecriture impossible.');
       const text = typeof json.description === 'string' ? json.description.trim() : '';
       if (!text) throw new Error('Reponse IA vide.');
-      setDescriptionDraft(text);
-      const { error } = await supabase.from('photos').update({ description: text }).eq('id', descriptionTarget.id);
+      const { error } = await supabase.from('photos').update({ description: text }).eq('id', p.id);
       if (error) throw new Error(error.message);
       await onRefresh();
-      setMode('list');
-      setDescriptionTarget(null);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Erreur inconnue');
+      setDescriptionTarget(p);
     } finally { setRewriting(false); }
   };
 
@@ -985,25 +1011,6 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
           <button className="crn-back" onClick={() => setMode('list')}>Retour au carnet</button>
         </div>
         <CarnetSettingsTab />
-      </div>
-    );
-  }
-
-  if (mode === 'description' && descriptionTarget) {
-    return (
-      <div className="crn-form">
-        <div className="crn-form-head">
-          <h3>Reecrire la description</h3>
-          <button className="crn-back" onClick={() => setMode('list')}>Annuler</button>
-        </div>
-        <div className="crn-fields">
-          <label><span>Dictée / instructions</span><textarea className="field crn-textarea" placeholder="Dites ce que vous voulez changer..." value={descriptionDraft} onChange={e => setDescriptionDraft(e.target.value)} /></label>
-          <label><span>Comment la reformuler</span><input className="field" placeholder="Plus technique, plus courte, plus commerciale..." value={descriptionInstructions} onChange={e => setDescriptionInstructions(e.target.value)} /></label>
-        </div>
-        {err && <p className="adm-msg adm-err">{err}</p>}
-        <button className="btn-pink crn-save" onClick={applyDescriptionRewrite} disabled={rewriting}>
-          <Sparkles size={15} /> {rewriting ? 'Reecriture...' : 'Reecrire avec l IA'}
-        </button>
       </div>
     );
   }
@@ -1165,40 +1172,33 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                   </div>
                   {isExpanded && (
                     <div className="crn-draft-expanded">
+                      <div className="crn-draft-head-row">
+                        <button className="crn-btn-publish" onClick={() => handlePublish(p.id)} disabled={publishing === p.id}><Eye size={13} /> {publishing === p.id ? '...' : 'Publier'}</button>
+                      </div>
                       {p.description && <div className="crn-raw-block"><span className="crn-raw-label">Description</span><p>{p.description}</p></div>}
-                      {(p.images?.length ?? 0) > 0 && <div className="crn-draft-gallery">{p.images!.map((img, i) => <img key={img.id} src={img.image_url} alt="" className={`crn-draft-gallery-img ${i === 0 ? 'cover' : ''}`} onClick={() => setLightbox(img.image_url)} />)}</div>}
-                      {p.voice_transcript && <div className="crn-raw-block"><span className="crn-raw-label">Transcription vocale</span><p>{p.voice_transcript}</p></div>}
-                      {brands.length > 0 && <div className="crn-raw-block"><span className="crn-raw-label">Marques detectees</span><div className="crn-brands-tags">{brands.map((b, i) => <span key={i} className="crn-brand-tag">{b}</span>)}</div></div>}
-                      {hasRawData && p.raw_data && (() => {
-                        const telegram = p.raw_data!.telegram as Record<string, unknown> | undefined;
-                        const aiKeys = Object.keys(p.raw_data!).filter(k => k.startsWith('ai_'));                        const otherKeys = Object.keys(p.raw_data!).filter(k => k !== 'telegram' && !k.startsWith('ai_'));
-                        return (
-                          <details className="crn-raw-details">
-                            <summary>Autres donnees</summary>
-                            {telegram && (
-                              <div className="crn-raw-block">
-                                <span className="crn-raw-label">Message Telegram</span>
-                                <pre className="crn-raw-json">{JSON.stringify(telegram, null, 2)}</pre>
-                              </div>
-                            )}
-                            {aiKeys.length > 0 && (
-                              <div className="crn-raw-block">
-                                <span className="crn-raw-label">Analyse IA</span>
-                                <pre className="crn-raw-json">{JSON.stringify(Object.fromEntries(aiKeys.map(k => [k, p.raw_data![k]])), null, 2)}</pre>
-                              </div>
-                            )}
-                            {otherKeys.length > 0 && (
-                              <div className="crn-raw-block">
-                                <span className="crn-raw-label">Autres donnees</span>
-                                <pre className="crn-raw-json">{JSON.stringify(Object.fromEntries(otherKeys.map(k => [k, p.raw_data![k]])), null, 2)}</pre>
-                              </div>
-                            )}
-                          </details>
-                        );
-                      })()}
+                      <div className="crn-dictate-row">
+                        <button
+                          className={`crn-mic-btn ${recordingFor === p.id ? 'recording' : ''}`}
+                          title={recordingFor === p.id ? 'Arreter et reecrire avec l IA' : 'Dicter la nouvelle description'}
+                          onClick={() => toggleRecording(p)}
+                          disabled={rewriting && descriptionTarget?.id === p.id}
+                        >
+                          <Mic size={14} />
+                        </button>
+                        <div className="crn-mic-wave" aria-hidden="true">
+                          {Array.from({ length: 18 }).map((_, i) => <span key={i} />)}
+                        </div>
+                        <span className="crn-mic-status">
+                          {rewriting && descriptionTarget?.id === p.id
+                            ? 'L IA reecrit...'
+                            : recordingFor === p.id
+                              ? 'J ecoute... appuyez pour valider'
+                              : 'Dictée vocale'}</span>
+                        {err && descriptionTarget?.id === p.id && <span className="crn-mic-error">{err}</span>}
+                      </div>
                       {(p.images?.length ?? 0) > 0 && (
                         <div className="crn-draft-gallery">
-                          {p.images!.map((img, i) => {
+                          {p.images!.map((img) => {
                             const isCover = img.image_url === p.image_url;
                             return (
                               <div key={img.id} className="crn-draft-gallery-item">
@@ -1215,10 +1215,47 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                           })}
                         </div>
                       )}
+                      {brands.length > 0 && <div className="crn-raw-block"><span className="crn-raw-label">Marques detectees</span><div className="crn-brands-tags">{brands.map((b, i) => <span key={i} className="crn-brand-tag">{b}</span>)}</div></div>}
+                      {hasRawData && (
+                        <details className="crn-raw-details">
+                          <summary>Autres donnees</summary>
+                          {p.voice_transcript && (
+                            <div className="crn-raw-block">
+                              <span className="crn-raw-label">Transcription vocale</span>
+                              <p>{p.voice_transcript}</p>
+                            </div>
+                          )}
+                          {p.raw_data && (() => {
+                            const telegram = p.raw_data!.telegram as Record<string, unknown> | undefined;
+                            const aiKeys = Object.keys(p.raw_data!).filter(k => k.startsWith('ai_'));
+                            const otherKeys = Object.keys(p.raw_data!).filter(k => k !== 'telegram' && !k.startsWith('ai_'));
+                            return (
+                              <>
+                                {telegram && (
+                                  <div className="crn-raw-block">
+                                    <span className="crn-raw-label">Message Telegram</span>
+                                    <pre className="crn-raw-json">{JSON.stringify(telegram, null, 2)}</pre>
+                                  </div>
+                                )}
+                                {aiKeys.length > 0 && (
+                                  <div className="crn-raw-block">
+                                    <span className="crn-raw-label">Analyse IA</span>
+                                    <pre className="crn-raw-json">{JSON.stringify(Object.fromEntries(aiKeys.map(k => [k, p.raw_data![k]])), null, 2)}</pre>
+                                  </div>
+                                )}
+                                {otherKeys.length > 0 && (
+                                  <div className="crn-raw-block">
+                                    <span className="crn-raw-label">Autres donnees</span>
+                                    <pre className="crn-raw-json">{JSON.stringify(Object.fromEntries(otherKeys.map(k => [k, p.raw_data![k]])), null, 2)}</pre>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </details>
+                      )}
                       <div className="crn-draft-actions">
-                        <button className="crn-btn-publish" onClick={() => handlePublish(p.id)} disabled={publishing === p.id}><Eye size={13} /> {publishing === p.id ? '...' : 'Publier'}</button>
                         <button className="crn-btn-edit" onClick={() => openEdit(p)}><Pencil size={13} /> Modifier</button>
-                        <button className="crn-btn-desc" onClick={() => startDescriptionEdit(p)} disabled={rewriting === true && descriptionTarget?.id === p.id}><Sparkles size={13} /> Description IA</button>
                         <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}><Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}</button>
                       </div>
                     </div>
