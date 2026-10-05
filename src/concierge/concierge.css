@@ -193,30 +193,7 @@
   margin: 0 auto;
 }
 
-/* Barre haute : avatar à gauche, état à sa droite */
-.concierge-active-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-}
-
-.concierge-avatar {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: #1a1a1a;
-  color: #fff;
-  font-family: 'DM Mono', monospace;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
-}
-
+/* Conversation layout */
 /* Zone centrale : visualisation et parole */
 .concierge-stage {
   display: flex;
@@ -236,6 +213,7 @@
   width: 100%;
   margin-top: auto;
 }
+
 
 .concierge-status-row {
   display: flex;
@@ -1492,4 +1470,33 @@
   transform: none;
   box-shadow: none;
   background: #1a1a1a;
+}
+
+
+/* Transparent companion anchored at the upper left in every session state. */
+.concierge-companion {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 16px;
+  padding: 8px 24px 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+robot-majordome.concierge-robot {
+  display: block;
+  width: 176px;
+  flex: 0 0 176px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.concierge-companion-caption { min-width: 0; }
+.concierge-companion-name { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.concierge-companion .concierge-status-row { flex-wrap: wrap; justify-content: flex-start; text-align: left; }
+@media (max-width: 600px) {
+  .concierge-companion { padding: 8px 12px 0; gap: 8px; }
+  robot-majordome.concierge-robot { width: 124px; flex-basis: 124px; }
+  .concierge-companion-name { font-size: 12px; }
+  .concierge-companion .concierge-status-row { font-size: 12px; gap: 6px; }
 }

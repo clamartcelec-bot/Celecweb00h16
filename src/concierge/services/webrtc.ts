@@ -50,12 +50,16 @@ export async function createRealtimeSession(
 
   pc.ontrack = (event) => {
     console.log('Remote track received:', event.track.kind);
-    if (event.streams?.[0]) {
-      remoteAudioEl.srcObject = event.streams[0];
-    } else {
-      remoteStream.addTrack(event.track);
-      remoteAudioEl.srcObject = remoteStream;
+    // Playback and animation must observe the same stream, including late tracks.
+    const tracks = event.streams?.[0]?.getAudioTracks() ?? [event.track];
+    for (const track of tracks) {
+      if (track.kind === 'audio' && !remoteStream.getTrackById(track.id)) {
+        remoteStream.addTrack(track);
+        // Programmatic addTrack does not emit the native addtrack event.
+        remoteStream.dispatchEvent(new Event('addtrack'));
+      }
     }
+    remoteAudioEl.srcObject = remoteStream;
   };
 
   for (const track of localStream.getTracks()) {
@@ -79,41 +83,42 @@ export async function createRealtimeSession(
     }
   });
 
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
 
-  if (!offer.sdp) {
-    throw new Error('No SDP offer generated');
+    if (!offer.sdp) {
+      throw new Error('No SDP offer generated');
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/realtime-session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({ sdp: offer.sdp, conversation_id: conversationId ?? undefined }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Realtime backend failed (${response.status}): ${errText}`);
+    }
+
+    const answerSdp = await response.text();
+
+    if (!answerSdp.startsWith('v=0')) {
+      throw new Error(`Backend did not return SDP: ${answerSdp.slice(0, 300)}`);
+    }
+
+    await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+
+    return { pc, dc, localStream, remoteStream, remoteAudioEl };
+  } catch (error) {
+    closeSession({ pc, dc, localStream, remoteStream, remoteAudioEl });
+    throw error;
   }
-
-  const response = await fetch(`${supabaseUrl}/functions/v1/realtime-session`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: anonKey,
-      Authorization: `Bearer ${anonKey}`,
-    },
-    body: JSON.stringify({ sdp: offer.sdp, conversation_id: conversationId ?? undefined }),
-  });
-
-  if (!response.ok) {
-    pc.close();
-    localStream.getTracks().forEach((t) => t.stop());
-    const errText = await response.text();
-    throw new Error(`Realtime backend failed (${response.status}): ${errText}`);
-  }
-
-  const answerSdp = await response.text();
-
-  if (!answerSdp.startsWith('v=0')) {
-    pc.close();
-    localStream.getTracks().forEach((t) => t.stop());
-    throw new Error(`Backend did not return SDP: ${answerSdp.slice(0, 300)}`);
-  }
-
-  await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-
-  return { pc, dc, localStream, remoteStream, remoteAudioEl };
 }
 
 export function closeSession(session: WebRTCSession | null) {
@@ -130,3 +135,4 @@ export function sendDataChannelEvent(dc: RTCDataChannel, event: Record<string, u
     dc.send(JSON.stringify(event));
   }
 }
+

@@ -20,7 +20,8 @@ import {
   Send,
   X,
 } from 'lucide-react';
-import { useRealtimeSession, type ToolCall, type TranscriptEvent } from '../hooks/useRealtimeSession';
+import { useRealtimeSession, type ToolCall, type TranscriptEvent, type ToolActivity } from '@/concierge/hooks/useRealtimeSession';
+import { ConciergeRobot, type ConciergeRobotHandle } from '@/concierge/components/ConciergeRobot';
 import { useConversationTimer } from '../hooks/useConversationTimer';
 import { useAudioLevels } from '../hooks/useAudioLevels';
 import { formatConciergeContext, formatConciergeResume, loadConciergeContext, type ConciergeContext } from '../services/context';
@@ -118,6 +119,7 @@ export function ConciergePage() {
     isMuted,
     isUserSpeaking,
     isAssistantSpeaking,
+    isResponding,
     localStream,
     remoteStream,
     start,
@@ -125,11 +127,25 @@ export function ConciergePage() {
     toggleMute,
     sendFunctionResult,
     onToolCall,
+    onToolActivity,
     onTranscript,
     injectSystemMessage,
     requestResponse,
     sendUserText,
   } = useRealtimeSession(conversationId);
+
+  const robotRef = useRef<ConciergeRobotHandle>(null);
+  const [toolActivity, setToolActivity] = useState<ToolActivity | null>(null);
+  const handleAudioAmplitude = useCallback((value: number) => {
+    robotRef.current?.setAudioAmplitude(value);
+  }, []);
+  useEffect(() => {
+    onToolActivity(setToolActivity);
+    return () => onToolActivity(null);
+  }, [onToolActivity]);
+  useEffect(() => {
+    if (status !== 'connected') setToolActivity(null);
+  }, [status]);
 
   const [draft, setDraft] = useState<ConciergeDraft>(EMPTY_CONCIERGE_DRAFT);
   const [clientContext, setClientContext] = useState<ConciergeContext | null>(null);
@@ -256,6 +272,12 @@ export function ConciergePage() {
 
   const handleToolCall = useCallback(async (tool: ToolCall) => {
     const args = tool.arguments;
+    if (!['update_client_panel', 'update_request_panel', 'search_carnet', 'show_carnet_entries',
+      'show_brand', 'begin_appointment_flow', 'end_appointment_flow', 'submit_request'].includes(tool.name)) {
+      sendFunctionResult(tool.callId, { success: false, message: 'Action inconnue.' });
+      return;
+    }
+
 
     if (tool.name === 'update_client_panel') {
       const firstName = stringArg(args, 'first_name');
@@ -690,6 +712,26 @@ export function ConciergePage() {
         <div className="concierge-header-spacer" />
       </header>
 
+      <div className="concierge-companion">
+        <ConciergeRobot ref={robotRef} status={status}
+          isUserSpeaking={isUserSpeaking} isAssistantSpeaking={isAssistantSpeaking}
+          isResponding={isResponding} toolActivity={toolActivity} />
+        <div className="concierge-companion-caption">
+          <span className="concierge-companion-name">Votre concierge CELEC</span>
+          <div className="concierge-status-row" role="status">
+            {status === 'connected' && <span className="concierge-live-dot" />}
+            <span>{status === 'connected'
+              ? isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…'
+                : isResponding || toolActivity?.phase === 'started' ? 'Je m’en occupe…' : 'À l’écoute'
+              : status === 'requesting-mic' || status === 'connecting' ? 'Je me prépare…'
+                : status === 'error' ? 'Connexion à réessayer' : status === 'ended' ? 'À bientôt !' : 'Bonjour !'}</span>
+            {status === 'connected' && <span className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}>
+              {timer.formatted}
+            </span>}
+          </div>
+        </div>
+      </div>
+
       <main className={`concierge-main ${inSession && (showRequestPanel || cards.length > 0) ? 'concierge-main--flow' : ''}`}>
         {status === 'idle' && !settings.enabled && (
           <div className="concierge-idle">
@@ -718,6 +760,7 @@ export function ConciergePage() {
                 isAssistantSpeaking={isAssistantSpeaking}
                 localStream={localStream}
                 remoteStream={remoteStream}
+                onAudioAmplitude={handleAudioAmplitude}
                 aiReply={aiReply}
                 messages={messages}
                 historyOpen={historyOpen}
@@ -826,6 +869,7 @@ interface ActiveViewProps {
   isAssistantSpeaking: boolean;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  onAudioAmplitude: (value: number) => void;
   aiReply: string;
   messages: ConciergeMessage[];
   historyOpen: boolean;
@@ -847,6 +891,7 @@ function ActiveView({
   isAssistantSpeaking,
   localStream,
   remoteStream,
+  onAudioAmplitude,
   aiReply,
   messages,
   historyOpen,
@@ -862,23 +907,13 @@ function ActiveView({
   const { inputLevels, outputLevels } = useAudioLevels(
     isMuted ? null : localStream,
     remoteStream,
+    onAudioAmplitude,
   );
   const showQuickPrompts = messages.length <= 1 && !aiReply;
   const displayedReply = aiReply;
 
   return (
     <div className={`concierge-active ${compact ? 'concierge-active--compact' : ''}`}>
-      <div className="concierge-active-top">
-        <span className="concierge-avatar" aria-hidden="true">CE</span>
-        <div className="concierge-status-row">
-          <div className="concierge-live-dot" />
-          <span>{isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…' : 'À l’écoute'}</span>
-          <span className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}>
-            {timer.formatted}
-          </span>
-        </div>
-      </div>
-
       {timer.warningLevel === 'ending' && (
         <div className="concierge-ending-notice">
           <AlertTriangle size={16} />
@@ -1189,3 +1224,4 @@ function EndedView({ draft, onRestart, onResume, onBack }: { draft: ConciergeDra
     </div>
   );
 }
+
