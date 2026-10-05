@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MapPin, ArrowUpRight,
   Receipt, Search, Camera, Plus, Trash2,
   Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
-  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot
+  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Sparkles
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ConciergeTab } from '@/components/ConciergeTab';
@@ -60,6 +60,7 @@ interface PhotoRow {
   voice_transcript?: string | null;
   ai_summary?: string | null;
   source?: string | null;
+  entry_type?: string | null;
 }
 
 interface PhotoImage {
@@ -178,7 +179,7 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
       supabase.from('profiles').select('*').order('created_at', { ascending: false }),
       supabase.from('requests').select('*').order('created_at', { ascending: false }),
       supabase.from('invoices').select('*').order('issued_at', { ascending: false }),
-      supabase.from('photos').select('*, raw_data, detected_brands, voice_transcript, ai_summary, source').order('created_at', { ascending: false }),
+      supabase.from('photos').select('*, raw_data, detected_brands, voice_transcript, ai_summary, source, entry_type').order('created_at', { ascending: false }),
       supabase.from('photo_images').select('*').order('position', { ascending: true }),
       supabase.from('partners').select('*').order('position', { ascending: true }),
     ]);
@@ -723,9 +724,16 @@ interface PhotoForm {
   published: boolean;
   date: string;
   brands: string[];
+  entryType: string;
 }
 
-const emptyForm: PhotoForm = { title: '', author: '', city: '', cityLat: 0, cityLng: 0, description: '', published: true, date: new Date().toISOString().slice(0, 10), brands: [] };
+const ENTRY_TYPES = [
+  { value: 'chantier', label: 'Chantier' },
+  { value: 'intervention', label: 'Intervention' },
+  { value: 'remarque', label: 'Remarque' },
+];
+
+const emptyForm: PhotoForm = { title: '', author: '', city: '', cityLat: 0, cityLng: 0, description: '', published: true, date: new Date().toISOString().slice(0, 10), brands: [], entryType: 'intervention' };
 
 // Brand names are matched loosely so a typo in spacing, accents or "&" still links the
 // carnet entry to the right partner sheet.
@@ -733,7 +741,7 @@ const normalizeBrandName = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
 
 function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partners: PartnerRow[]; onRefresh: () => Promise<void> }) {
-  const [mode, setMode] = useState<'list' | 'add' | 'edit' | 'settings'>('list');
+  const [mode, setMode] = useState<'list' | 'add' | 'edit' | 'settings' | 'description'>('list');
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<PhotoForm>(emptyForm);
   const [files, setFiles] = useState<File[]>([]);
@@ -749,6 +757,11 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
   const [publishing, setPublishing] = useState<string | null>(null);
   const [brandQuery, setBrandQuery] = useState('');
   const [showBrandDropdown, setShowBrandDropdown] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [descriptionTarget, setDescriptionTarget] = useState<PhotoRow | null>(null);
+  const [descriptionDraft, setDescriptionDraft] = useState('');
+  const [descriptionInstructions, setDescriptionInstructions] = useState('');
+  const [rewriting, setRewriting] = useState(false);
   const brandInputRef = useRef<HTMLDivElement>(null);
   const cityInputRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -829,7 +842,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
   };
 
   const openEdit = (p: PhotoRow) => {
-    setForm({ title: p.title, author: p.author, city: p.city, cityLat: p.lat, cityLng: p.lng, description: p.description ?? '', published: p.published, date: p.created_at.slice(0, 10), brands: p.detected_brands ?? [] });
+    setForm({ title: p.title, author: p.author, city: p.city, cityLat: p.lat, cityLng: p.lng, description: p.description ?? '', published: p.published, date: p.created_at.slice(0, 10), brands: p.detected_brands ?? [], entryType: p.entry_type || 'intervention' });
     setFiles([]); setPreviews([]); setExistingImages(p.images ?? []); setEditId(p.id); setErr(''); setBrandQuery(''); setShowBrandDropdown(false); setMode('edit');
   };
 
@@ -867,7 +880,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
     if (!form.title.trim()) { setErr('Titre requis.'); return; }
     setSaving(true); setErr('');
     try {
-      const row = { title: form.title.trim(), author: form.author.trim(), city: form.city.trim(), lat: form.cityLat, lng: form.cityLng, description: form.description.trim() || null, published: form.published, created_at: new Date(form.date).toISOString(), detected_brands: form.brands };
+      const row = { title: form.title.trim(), author: form.author.trim(), city: form.city.trim(), lat: form.cityLat, lng: form.cityLng, description: form.description.trim() || null, published: form.published, created_at: new Date(form.date).toISOString(), detected_brands: form.brands, entry_type: form.entryType };
       let entryId = editId;
       if (mode === 'add') {
         const { data, error } = await supabase.from('photos').insert({ ...row, image_url: '', source: 'manual' }).select('id').single();
@@ -918,6 +931,52 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
     await onRefresh(); setDeleting(null);
   };
 
+  const setCover = async (photoId: string, imageUrl: string) => {
+    if (!supabase) return;
+    await supabase.from('photos').update({ image_url: imageUrl }).eq('id', photoId);
+    await onRefresh();
+  };
+
+  const startDescriptionEdit = (p: PhotoRow) => {
+    setDescriptionTarget(p);
+    setDescriptionDraft(p.description ?? '');
+    setDescriptionInstructions('');
+    setMode('description');
+  };
+
+  const applyDescriptionRewrite = async () => {
+    if (!supabase || !descriptionTarget) return;
+    setRewriting(true); setErr('');
+    try {
+      const prompt = [
+        `Texte actuel : ${descriptionTarget.description ?? descriptionDraft}`,
+        `Transcription vocale : ${descriptionDraft}`,
+        `Instructions : ${descriptionInstructions || 'Reformule de maniere claire et professionnelle.'}`,
+        'Reecris la description en tenant compte des instructions. Garde les faits, ameliore la forme. Reponds uniquement par la nouvelle description, sans guillemets ni explications.',
+      ].join('\n');
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error('Session expiree.');
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/description-rewrite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!res.ok) throw new Error('Reecriture impossible.');
+      const json = await res.json();
+      const text = typeof json.description === 'string' ? json.description.trim() : '';
+      if (!text) throw new Error('Reponse IA vide.');
+      setDescriptionDraft(text);
+      const { error } = await supabase.from('photos').update({ description: text }).eq('id', descriptionTarget.id);
+      if (error) throw new Error(error.message);
+      await onRefresh();
+      setMode('list');
+      setDescriptionTarget(null);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Erreur inconnue');
+    } finally { setRewriting(false); }
+  };
+
   if (mode === 'settings') {
     return (
       <div className="crn-form">
@@ -926,6 +985,25 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
           <button className="crn-back" onClick={() => setMode('list')}>Retour au carnet</button>
         </div>
         <CarnetSettingsTab />
+      </div>
+    );
+  }
+
+  if (mode === 'description' && descriptionTarget) {
+    return (
+      <div className="crn-form">
+        <div className="crn-form-head">
+          <h3>Reecrire la description</h3>
+          <button className="crn-back" onClick={() => setMode('list')}>Annuler</button>
+        </div>
+        <div className="crn-fields">
+          <label><span>Dictée / instructions</span><textarea className="field crn-textarea" placeholder="Dites ce que vous voulez changer..." value={descriptionDraft} onChange={e => setDescriptionDraft(e.target.value)} /></label>
+          <label><span>Comment la reformuler</span><input className="field" placeholder="Plus technique, plus courte, plus commerciale..." value={descriptionInstructions} onChange={e => setDescriptionInstructions(e.target.value)} /></label>
+        </div>
+        {err && <p className="adm-msg adm-err">{err}</p>}
+        <button className="btn-pink crn-save" onClick={applyDescriptionRewrite} disabled={rewriting}>
+          <Sparkles size={15} /> {rewriting ? 'Reecriture...' : 'Reecrire avec l IA'}
+        </button>
       </div>
     );
   }
@@ -979,6 +1057,11 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
             <label><span>Date</span><input className="field" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
           </div>
           <label><span>Description</span><textarea className="field crn-textarea" placeholder="Ce qu'on a fait, ce qu'on a trouve..." value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></label>
+          <label><span>Type de billet</span>
+            <select className="field" value={form.entryType} onChange={e => setForm({ ...form, entryType: e.target.value })}>
+              {ENTRY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </label>
           <div className="brand-picker">
             <span className="brand-picker-label">Marques</span>
             <div className="brand-picker-box" ref={brandInputRef}>
@@ -1037,6 +1120,12 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
 
   return (
     <>
+      {lightbox && (
+        <div className="crn-lightbox" onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="Photo agrandie" />
+          <button className="crn-lightbox-close" onClick={() => setLightbox(null)}><X size={18} /></button>
+        </div>
+      )}
       <div className="crn-head">
         <span className="crn-count">{photos.length} billet{photos.length > 1 ? 's' : ''} ({drafts.length} brouillon{drafts.length > 1 ? 's' : ''})</span>
         <div className="crn-head-actions">
@@ -1062,6 +1151,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                       <div className="crn-draft-top-row">
                         <h4>{p.title}</h4>
                         {p.source === 'telegram' && <span className="crn-badge-source">Telegram</span>}
+                      {p.entry_type && <span className="crn-badge-type">{ENTRY_TYPES.find(t => t.value === p.entry_type)?.label || p.entry_type}</span>}
                         {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                       </div>
                       {p.ai_summary && <p className="crn-draft-summary">{p.ai_summary}</p>}
@@ -1076,14 +1166,15 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                   {isExpanded && (
                     <div className="crn-draft-expanded">
                       {p.description && <div className="crn-raw-block"><span className="crn-raw-label">Description</span><p>{p.description}</p></div>}
+                      {(p.images?.length ?? 0) > 0 && <div className="crn-draft-gallery">{p.images!.map((img, i) => <img key={img.id} src={img.image_url} alt="" className={`crn-draft-gallery-img ${i === 0 ? 'cover' : ''}`} onClick={() => setLightbox(img.image_url)} />)}</div>}
                       {p.voice_transcript && <div className="crn-raw-block"><span className="crn-raw-label">Transcription vocale</span><p>{p.voice_transcript}</p></div>}
                       {brands.length > 0 && <div className="crn-raw-block"><span className="crn-raw-label">Marques detectees</span><div className="crn-brands-tags">{brands.map((b, i) => <span key={i} className="crn-brand-tag">{b}</span>)}</div></div>}
                       {hasRawData && p.raw_data && (() => {
                         const telegram = p.raw_data!.telegram as Record<string, unknown> | undefined;
-                        const aiKeys = Object.keys(p.raw_data!).filter(k => k.startsWith('ai_'));
-                        const otherKeys = Object.keys(p.raw_data!).filter(k => k !== 'telegram' && !k.startsWith('ai_'));
+                        const aiKeys = Object.keys(p.raw_data!).filter(k => k.startsWith('ai_'));                        const otherKeys = Object.keys(p.raw_data!).filter(k => k !== 'telegram' && !k.startsWith('ai_'));
                         return (
-                          <>
+                          <details className="crn-raw-details">
+                            <summary>Autres donnees</summary>
                             {telegram && (
                               <div className="crn-raw-block">
                                 <span className="crn-raw-label">Message Telegram</span>
@@ -1097,18 +1188,37 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                               </div>
                             )}
                             {otherKeys.length > 0 && (
-                              <details className="crn-raw-details">
-                                <summary>Autres donnees</summary>
+                              <div className="crn-raw-block">
+                                <span className="crn-raw-label">Autres donnees</span>
                                 <pre className="crn-raw-json">{JSON.stringify(Object.fromEntries(otherKeys.map(k => [k, p.raw_data![k]])), null, 2)}</pre>
-                              </details>
+                              </div>
                             )}
-                          </>
+                          </details>
                         );
                       })()}
-                      {(p.images?.length ?? 0) > 0 && <div className="crn-draft-gallery">{p.images!.map(img => <img key={img.id} src={img.image_url} alt="" className="crn-draft-gallery-img" />)}</div>}
+                      {(p.images?.length ?? 0) > 0 && (
+                        <div className="crn-draft-gallery">
+                          {p.images!.map((img, i) => {
+                            const isCover = img.image_url === p.image_url;
+                            return (
+                              <div key={img.id} className="crn-draft-gallery-item">
+                                <img src={img.image_url} alt="" className={`crn-draft-gallery-img ${isCover ? 'cover' : ''}`} onClick={() => setLightbox(img.image_url)} />
+                                <button
+                                  className={`crn-cover-toggle ${isCover ? 'is-cover' : ''}`}
+                                  title={isCover ? 'Photo de couverture' : 'Utiliser comme photo de couverture'}
+                                  onClick={(e) => { e.stopPropagation(); if (!isCover) setCover(p.id, img.image_url); }}
+                                >
+                                  <ImageIcon size={11} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                       <div className="crn-draft-actions">
                         <button className="crn-btn-publish" onClick={() => handlePublish(p.id)} disabled={publishing === p.id}><Eye size={13} /> {publishing === p.id ? '...' : 'Publier'}</button>
                         <button className="crn-btn-edit" onClick={() => openEdit(p)}><Pencil size={13} /> Modifier</button>
+                        <button className="crn-btn-desc" onClick={() => startDescriptionEdit(p)} disabled={rewriting === true && descriptionTarget?.id === p.id}><Sparkles size={13} /> Description IA</button>
                         <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}><Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}</button>
                       </div>
                     </div>
@@ -1130,7 +1240,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
             <div key={p.id} className="crn-card">
               {thumbUrl ? <div className="crn-img-wrap"><img src={thumbUrl} alt={p.title} className="crn-img" />{imgCount > 1 && <span className="crn-img-count">{imgCount} photos</span>}</div> : <div className="crn-img crn-img-empty"><ImageIcon size={24} /></div>}
               <div className="crn-card-body">
-                <div className="crn-card-top"><h4>{p.title}</h4>{p.source === 'telegram' && <span className="crn-badge-source crn-badge-sm">TG</span>}</div>
+                <div className="crn-card-top"><h4>{p.title}</h4>{p.source === 'telegram' && <span className="crn-badge-source crn-badge-sm">TG</span>}{p.entry_type && <span className="crn-badge-type">{ENTRY_TYPES.find(t => t.value === p.entry_type)?.label || p.entry_type}</span>}</div>
                 <div className="crn-card-meta">{p.author && <span>{p.author}</span>}{p.city && <span><MapPin size={10} /> {p.city}</span>}<span>{fmtDate(p.created_at)}</span></div>
                 {brands.length > 0 && <div className="crn-card-brands">{brands.join(', ')}</div>}
                 {p.description && <p className="crn-card-desc">{p.description}</p>}
