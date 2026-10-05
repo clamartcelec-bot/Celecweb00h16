@@ -26,3 +26,7 @@ work
 *.sw?
 .env
 
+
+
+/playwright-report/
+/test-results/

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   requestMicrophone,
   createRealtimeSession,
@@ -6,7 +6,7 @@ import {
   sendDataChannelEvent,
   type WebRTCSession,
   type DataChannelMessage,
-} from '../services/webrtc';
+} from '@/concierge/services/webrtc';
 
 export type ConnectionStatus = 'idle' | 'requesting-mic' | 'connecting' | 'connected' | 'error' | 'ended';
 
@@ -14,6 +14,12 @@ export interface ToolCall {
   name: string;
   arguments: Record<string, unknown>;
   callId: string;
+}
+
+export interface ToolActivity {
+  name: string;
+  callId: string;
+  phase: 'started' | 'success' | 'error';
 }
 
 export interface TranscriptEvent {
@@ -29,12 +35,18 @@ export function useRealtimeSession(conversationId: string | null) {
   const [isMuted, setIsMuted] = useState(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
+  const [isResponding, setIsResponding] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   const sessionRef = useRef<WebRTCSession | null>(null);
-  const toolCallHandlerRef = useRef<((tool: ToolCall) => void) | null>(null);
+  const toolCallHandlerRef = useRef<((tool: ToolCall) => void | Promise<void>) | null>(null);
   const transcriptHandlerRef = useRef<((event: TranscriptEvent) => void) | null>(null);
+  const toolActivityHandlerRef = useRef<((activity: ToolActivity) => void) | null>(null);
+  const toolNamesRef = useRef(new Map<string, string>());
+  const playbackEventsRef = useRef(false);
+  const playbackResponseRef = useRef<string | null>(null);
+  const generationRef = useRef(0);
   const responseTimerRef = useRef<number | null>(null);
 
   const scheduleResponse = useCallback(() => {
@@ -51,17 +63,37 @@ export function useRealtimeSession(conversationId: string | null) {
   const processedCallsRef = useRef<Set<string>>(new Set());
   const assistantTranscriptRef = useRef('');
 
+  const failToolCall = useCallback((callId: string, name: string) => {
+    processedCallsRef.current.add(callId);
+    toolNamesRef.current.delete(callId);
+    toolActivityHandlerRef.current?.({ name, callId, phase: 'error' });
+    if (!sessionRef.current) return;
+    sendDataChannelEvent(sessionRef.current.dc, {
+      type: 'conversation.item.create',
+      item: { type: 'function_call_output', call_id: callId,
+        output: JSON.stringify({ success: false, message: 'Cette action a échoué. Veuillez réessayer.' }) },
+    });
+    scheduleResponse();
+  }, [scheduleResponse]);
+
   const dispatchToolCall = useCallback((callId: string, name: string, argsStr: string) => {
     if (!callId || !name || processedCallsRef.current.has(callId)) return;
-
     try {
       const args = JSON.parse(argsStr || '{}') as Record<string, unknown>;
+      if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid tool arguments');
       processedCallsRef.current.add(callId);
-      toolCallHandlerRef.current?.({ name, arguments: args, callId });
+      toolNamesRef.current.set(callId, name);
+      toolActivityHandlerRef.current?.({ name, callId, phase: 'started' });
+      const generation = generationRef.current;
+      Promise.resolve().then(() => {
+        if (generation === generationRef.current) return toolCallHandlerRef.current?.({ name, arguments: args, callId });
+      }).catch(() => {
+        if (generation === generationRef.current && toolNamesRef.current.has(callId)) failToolCall(callId, name);
+      });
     } catch {
-      console.error('Failed to parse tool call args:', argsStr);
+      failToolCall(callId, name);
     }
-  }, []);
+  }, [failToolCall]);
 
   const handleDataMessage = useCallback((msg: DataChannelMessage) => {
     const type = msg.type as string;
@@ -70,10 +102,30 @@ export function useRealtimeSession(conversationId: string | null) {
       console.log('Session ready:', type);
     }
 
-    if (type === 'input_audio_buffer.speech_started') setIsUserSpeaking(true);
+    if (type === 'input_audio_buffer.speech_started') {
+      setIsUserSpeaking(true);
+      setIsAssistantSpeaking(false); // User interruption closes the mouth immediately.
+    }
     if (type === 'input_audio_buffer.speech_stopped') setIsUserSpeaking(false);
-    if (type === 'response.output_audio.delta') setIsAssistantSpeaking(true);
-    if (type === 'response.output_audio.done' || type === 'response.done') setIsAssistantSpeaking(false);
+    // WebRTC playback can continue after response.done (generation completion).
+    if (type === 'output_audio_buffer.started') {
+      playbackEventsRef.current = true;
+      playbackResponseRef.current = String(msg.response_id ?? '');
+      setIsAssistantSpeaking(true);
+    }
+    if (type === 'output_audio_buffer.stopped' || type === 'output_audio_buffer.cleared') {
+      playbackEventsRef.current = true;
+      if (!msg.response_id || msg.response_id === playbackResponseRef.current) {
+        playbackResponseRef.current = null;
+        setIsAssistantSpeaking(false);
+      }
+    }
+    if (!playbackEventsRef.current) {
+      if (type === 'response.output_audio.delta' || type === 'response.audio.delta') setIsAssistantSpeaking(true);
+      if (type === 'response.output_audio.done' || type === 'response.audio.done' || type === 'response.done') setIsAssistantSpeaking(false);
+    }
+    if (type === 'response.created') setIsResponding(true);
+    if (type === 'response.done') setIsResponding(false);
 
     if (type === 'conversation.item.input_audio_transcription.delta') {
       transcriptHandlerRef.current?.({ role: 'user', text: String(msg.delta ?? ''), final: false });
@@ -83,7 +135,7 @@ export function useRealtimeSession(conversationId: string | null) {
       transcriptHandlerRef.current?.({ role: 'user', text: String(msg.transcript ?? ''), final: true });
     }
 
-    if (type === 'response.output_audio_transcript.delta') {
+    if (type === 'response.output_audio_transcript.delta' || type === 'response.audio_transcript.delta') {
       assistantTranscriptRef.current += String(msg.delta ?? '');
       transcriptHandlerRef.current?.({
         role: 'assistant',
@@ -93,7 +145,7 @@ export function useRealtimeSession(conversationId: string | null) {
       });
     }
 
-    if (type === 'response.output_audio_transcript.done') {
+    if (type === 'response.output_audio_transcript.done' || type === 'response.audio_transcript.done') {
       const complete = String(msg.transcript ?? '') || assistantTranscriptRef.current;
       assistantTranscriptRef.current = '';
       transcriptHandlerRef.current?.({ role: 'assistant', text: complete, final: true, fullText: complete });
@@ -136,19 +188,37 @@ export function useRealtimeSession(conversationId: string | null) {
 
   const handleConnectionStateChange = useCallback((state: RTCPeerConnectionState) => {
     if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+      ++generationRef.current;
+      const session = sessionRef.current;
+      sessionRef.current = null;
+      toolNamesRef.current.clear();
+      playbackResponseRef.current = null;
+      if (responseTimerRef.current) window.clearTimeout(responseTimerRef.current);
+      responseTimerRef.current = null;
+      closeSession(session);
       setIsUserSpeaking(false);
       setIsAssistantSpeaking(false);
+      setIsResponding(false);
+      setLocalStream(null);
+      setRemoteStream(null);
       setStatus('ended');
     }
   }, []);
 
   const start = useCallback(async () => {
+    const generation = ++generationRef.current;
     closeSession(sessionRef.current);
     sessionRef.current = null;
     if (responseTimerRef.current) {
       window.clearTimeout(responseTimerRef.current);
       responseTimerRef.current = null;
     }
+    playbackEventsRef.current = false;
+    playbackResponseRef.current = null;
+    toolNamesRef.current.clear();
+    setLocalStream(null);
+    setRemoteStream(null);
+    setIsResponding(false);
     pendingArgsRef.current.clear();
     processedCallsRef.current.clear();
     setError(null);
@@ -161,6 +231,7 @@ export function useRealtimeSession(conversationId: string | null) {
     try {
       stream = await requestMicrophone();
     } catch (e) {
+      if (generation !== generationRef.current) return;
       const msg = e instanceof DOMException && e.name === 'NotAllowedError'
         ? "L'accès au microphone a été refusé. Veuillez l'autoriser dans les paramètres de votre navigateur."
         : e instanceof DOMException && e.name === 'NotFoundError'
@@ -171,27 +242,44 @@ export function useRealtimeSession(conversationId: string | null) {
       return;
     }
 
+    if (generation !== generationRef.current) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
     setStatus('connecting');
 
     try {
       const session = await createRealtimeSession(
         stream,
-        handleDataMessage,
-        handleConnectionStateChange,
+        message => { if (generation === generationRef.current) handleDataMessage(message); },
+        state => { if (generation === generationRef.current) handleConnectionStateChange(state); },
         conversationId,
       );
+      if (generation !== generationRef.current) { closeSession(session); return; }
       sessionRef.current = session;
       setLocalStream(session.localStream);
       setRemoteStream(session.remoteStream);
       setStatus('connected');
     } catch (e) {
       stream.getTracks().forEach((t) => t.stop());
+      if (generation !== generationRef.current) return;
       setError(e instanceof Error ? e.message : 'Erreur de connexion');
       setStatus('error');
     }
   }, [conversationId, handleDataMessage, handleConnectionStateChange]);
 
+  useEffect(() => () => {
+    ++generationRef.current;
+    closeSession(sessionRef.current);
+    sessionRef.current = null;
+    if (responseTimerRef.current) window.clearTimeout(responseTimerRef.current);
+  }, []);
+
   const stop = useCallback(() => {
+    ++generationRef.current;
+    playbackResponseRef.current = null;
+    toolNamesRef.current.clear();
+    setIsResponding(false);
     closeSession(sessionRef.current);
     sessionRef.current = null;
     if (responseTimerRef.current) {
@@ -206,7 +294,7 @@ export function useRealtimeSession(conversationId: string | null) {
   }, []);
 
   const sendFunctionResult = useCallback((callId: string, result: Record<string, unknown>) => {
-    if (!sessionRef.current) return;
+    if (!sessionRef.current || !toolNamesRef.current.has(callId)) return;
     sendDataChannelEvent(sessionRef.current.dc, {
       type: 'conversation.item.create',
       item: {
@@ -215,11 +303,20 @@ export function useRealtimeSession(conversationId: string | null) {
         output: JSON.stringify(result),
       },
     });
+    const name = toolNamesRef.current.get(callId);
+    if (name) {
+      toolNamesRef.current.delete(callId);
+      toolActivityHandlerRef.current?.({ name, callId, phase: result.success === false ? 'error' : 'success' });
+    }
     scheduleResponse();
   }, [scheduleResponse]);
 
-  const onToolCall = useCallback((handler: ((tool: ToolCall) => void) | null) => {
+  const onToolCall = useCallback((handler: ((tool: ToolCall) => void | Promise<void>) | null) => {
     toolCallHandlerRef.current = handler;
+  }, []);
+
+  const onToolActivity = useCallback((handler: ((activity: ToolActivity) => void) | null) => {
+    toolActivityHandlerRef.current = handler;
   }, []);
 
   const onTranscript = useCallback((handler: ((event: TranscriptEvent) => void) | null) => {
@@ -273,6 +370,7 @@ export function useRealtimeSession(conversationId: string | null) {
     isMuted,
     isUserSpeaking,
     isAssistantSpeaking,
+    isResponding,
     localStream,
     remoteStream,
     start,
@@ -280,9 +378,11 @@ export function useRealtimeSession(conversationId: string | null) {
     toggleMute,
     sendFunctionResult,
     onToolCall,
+    onToolActivity,
     onTranscript,
     injectSystemMessage,
     requestResponse,
     sendUserText,
   };
 }
+

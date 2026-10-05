@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 24 552 458" fill="none" role="img" aria-labelledby="robot-title">
+<title id="robot-title">Petit majordome électricien</title>
+<defs>
+ <image id="texture" width="1254" height="1254" xlink:href="../assets/character.png"/>
+ <image id="accessories" width="1254" height="1254" xlink:href="../assets/accessories-pink.png"/>
+ <linearGradient id="screen-fill" x1="360" y1="415" x2="805" y2="762" gradientUnits="userSpaceOnUse"><stop stop-color="#13202b"/><stop offset=".4" stop-color="#081622"/><stop offset="1" stop-color="#102333"/></linearGradient>
+ <radialGradient id="crown-fill" cx=".36" cy=".10" r=".95"><stop stop-color="#ffffff"/><stop offset=".5" stop-color="#fafbfd"/><stop offset=".8" stop-color="#edf1f7"/><stop offset="1" stop-color="#d4dce8"/></radialGradient>
+ <radialGradient id="iris" cx=".28" cy=".18" r=".91"><stop stop-color="#fff"/><stop offset=".2" stop-color="#c5fbff"/><stop offset=".52" stop-color="#58e4fa"/><stop offset=".84" stop-color="#21c6ed"/><stop offset="1" stop-color="#068ab9"/></radialGradient>
+ <radialGradient id="pupil" cx=".43" cy=".19" r=".95"><stop stop-color="#162e55"/><stop offset=".45" stop-color="#020c23"/><stop offset=".74" stop-color="#002949"/><stop offset="1" stop-color="#0685b0"/></radialGradient>
+ <linearGradient id="led" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#ddffff"/><stop offset=".5" stop-color="#73eeff"/><stop offset="1" stop-color="#46cdec"/></linearGradient>
+ <radialGradient id="antenna-light"><stop stop-color="#b8ffff"/><stop offset=".3" stop-color="#62e8ff" stop-opacity=".75"/><stop offset="1" stop-color="#55e0ff" stop-opacity="0"/></radialGradient>
+ <filter id="soft-mask" x="-.3" y="-.3" width="1.6" height="1.6"><feGaussianBlur stdDeviation="10"/></filter>
+ <filter id="feature-soft" x="-.3" y="-.3" width="1.6" height="1.6"><feGaussianBlur stdDeviation="4"/></filter>
+ <filter id="glow" x="-.5" y="-.5" width="2" height="2"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+ <filter id="eye-glow" x="-.5" y="-.4" width="2" height="1.8"><feGaussianBlur stdDeviation="7"/></filter>
+ <filter id="ground-blur" x="-.4" y="-2" width="1.8" height="5"><feGaussianBlur stdDeviation="12"/></filter>
+ <path id="shell" d="M548 239 C399 238 298 309 264 412 C232 482 226 607 259 693 C308 800 417 854 585 855 C742 856 866 812 922 719 C971 640 979 515 949 424 C918 326 854 277 777 252 C704 232 620 227 548 239Z"/>
+ <clipPath id="head-cut"><use xlink:href="#shell"/><path d="M260 427 C222 414 203 434 193 476 C182 519 187 596 202 631 C214 655 235 664 258 658Z"/><path d="M946 443 C980 440 1004 463 1013 508 C1022 560 1015 633 995 660 C980 679 956 679 941 669Z"/></clipPath>
+ <clipPath id="antenna-cut"><circle cx="825" cy="106" r="22"/><path d="M813 122 L789 146 Q783 153 790 160 L815 178 Q824 184 815 192 L793 211 L779 249" stroke="white" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/><path d="M759 249 Q770 237 788 250 L795 263 L759 263Z"/></clipPath>
+ <clipPath id="free-cut"><path d="M863 850 C878 794 940 733 1002 715 C1046 699 1103 711 1110 742 C1116 778 1074 837 1028 869 C969 911 909 914 880 895 C866 885 860 869 863 850Z"/></clipPath>
+ <clipPath id="cap-sprite"><path d="M184 239 C196 201 294 193 401 209 C489 223 569 274 589 310 L589 383 L580 472 C536 485 461 477 426 469 C377 505 298 506 229 483 L99 430 C65 416 64 388 98 373 L163 346Z"/></clipPath>
+ <clipPath id="hand-sprite"><rect x="741" y="26" width="450" height="581"/></clipPath>
+ <clipPath id="box-sprite"><rect x="292" y="557" width="674" height="672"/></clipPath>
+ <clipPath id="eye-left-clip"><ellipse cx="468" cy="578" rx="57" ry="71"/></clipPath>
+ <clipPath id="eye-right-clip"><ellipse cx="741" cy="591" rx="55" ry="70"/></clipPath>
+ <mask id="head-mask" maskUnits="userSpaceOnUse" x="140" y="150" width="920" height="750"><rect x="140" y="150" width="920" height="750" fill="white"/><g fill="black" filter="url(#soft-mask)"><ellipse cx="468" cy="578" rx="81" ry="96"/><ellipse cx="741" cy="591" rx="81" ry="94"/><ellipse cx="478" cy="454" rx="64" ry="31"/><ellipse cx="604" cy="661" rx="68" ry="30"/><ellipse cx="659" cy="264" rx="148" ry="57"/></g><path d="M581 165 C613 145 695 164 746 192 C767 204 769 216 765 237 L759 273 C741 284 705 279 674 272 C647 285 600 278 565 258 L532 245 C519 244 519 235 535 229 L568 218Z" fill="black"/></mask>
+ <mask id="mouth-mask" maskUnits="userSpaceOnUse" x="524" y="620" width="160" height="90"><ellipse cx="604" cy="662" rx="64" ry="28" fill="white" filter="url(#feature-soft)"/></mask>
+</defs>
+<g transform="scale(.4784688995)">
+ <ellipse data-part="shadow" cx="600" cy="1045" rx="280" ry="20" fill="#60758b" opacity=".16" filter="url(#ground-blur)"/>
+ <g data-part="toolbox" id="toolbox"><ellipse cx="1000" cy="1219" rx="166" ry="10" fill="#576673" opacity=".13" filter="url(#ground-blur)"/><g transform="translate(690 625) scale(.49)"><use xlink:href="#accessories" clip-path="url(#box-sprite)"/></g></g>
+ <g data-part="position"><g data-part="body">
+  <g data-part="arm-right" id="arm-tools"><g transform="translate(-464 554) scale(.68)"><use xlink:href="#accessories" clip-path="url(#hand-sprite)"/></g></g>
+  <g data-part="arm-left" id="arm-free"><use xlink:href="#texture" clip-path="url(#free-cut)"/></g>
+  <g data-part="head" id="head">
+   <g clip-path="url(#head-cut)">
+    <!-- Continuous opaque shell under the cap: no cutout, floating patch or hole. -->
+    <use data-part="crown" xlink:href="#shell" fill="url(#crown-fill)"/>
+    <path d="M304 336 H903 V784 H304Z" fill="url(#screen-fill)"/>
+    <use xlink:href="#texture" mask="url(#head-mask)"/>
+   </g>
+   <g data-part="gaze" id="gaze">
+    <g data-part="eye-left" id="eye-left">
+     <g data-eye="pill"><ellipse cx="468" cy="578" rx="58" ry="73" fill="#3fe3ff" opacity=".45" filter="url(#eye-glow)"/><ellipse cx="468" cy="578" rx="57" ry="71" fill="url(#iris)"/><g clip-path="url(#eye-left-clip)"><g data-eye="pupil"><ellipse cx="478" cy="578" rx="36" ry="53" fill="url(#pupil)"/><circle cx="487" cy="543" r="11" fill="#fff"/><circle cx="498" cy="563" r="4" fill="#efffff"/><circle cx="460" cy="620" r="3" fill="#5debff" opacity=".7" filter="url(#glow)"/></g></g></g>
+     <path data-eye="arc" d="M420 586 Q462 527 512 584" stroke="url(#led)" stroke-width="18" stroke-linecap="round" opacity="0" filter="url(#glow)"/>
+    </g>
+    <g data-part="eye-right" id="eye-right">
+     <g data-eye="pill"><ellipse cx="741" cy="591" rx="57" ry="72" fill="#3fe3ff" opacity=".45" filter="url(#eye-glow)"/><ellipse cx="741" cy="591" rx="55" ry="70" fill="url(#iris)"/><g clip-path="url(#eye-right-clip)"><g data-eye="pupil"><ellipse cx="734" cy="591" rx="34" ry="51" fill="url(#pupil)"/><circle cx="729" cy="556" r="10.5" fill="#fff"/><circle cx="716" cy="575" r="3.5" fill="#efffff"/><circle cx="747" cy="632" r="3" fill="#5debff" opacity=".7" filter="url(#glow)"/></g></g></g>
+     <path data-eye="arc" d="M697 599 Q739 541 785 597" stroke="url(#led)" stroke-width="18" stroke-linecap="round" opacity="0" filter="url(#glow)"/>
+    </g>
+    <g data-part="brows"><path data-part="brow-left" d="M433 459 Q470 433 505 449" stroke="url(#led)" stroke-width="8" stroke-linecap="round" filter="url(#glow)"/><path data-part="brow-right" d="M703 462 Q737 445 771 466" stroke="url(#led)" stroke-width="8" stroke-linecap="round" filter="url(#glow)"/></g>
+   </g>
+   <g data-part="mouth"><g data-part="mouth-original"><use xlink:href="#texture" mask="url(#mouth-mask)"/></g><path data-part="mouth-shape" d="M554 654 C578 683 625 688 651 655 C626 665 580 665 554 654Z" fill="url(#led)" opacity="0" filter="url(#glow)"/></g>
+   <ellipse data-part="hat-contact" cx="662" cy="268" rx="95" ry="8" fill="#172d3b" opacity=".12" filter="url(#ground-blur)"/>
+   <g data-part="antenna" id="antenna"><circle data-part="antenna-led" cx="825" cy="106" r="43" fill="url(#antenna-light)" opacity=".5"/><use xlink:href="#texture" clip-path="url(#antenna-cut)"/></g>
+   <g data-part="hat" id="hat"><g transform="translate(500 56) scale(.44)"><use xlink:href="#accessories" clip-path="url(#cap-sprite)"/></g></g>
+  </g>
+ </g></g>
+</g>
+</svg>
