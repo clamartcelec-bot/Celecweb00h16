@@ -39,7 +39,7 @@ async function database() {
     CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
     INSERT INTO auth.users VALUES('${actor}'),('${client}');
     INSERT INTO profiles(id,email,role) VALUES('${actor}','admin@test.invalid','admin'),('${client}','client@test.invalid','client');`);
-  for (const name of ['20261006093935_20261006_harden_photos_profiles_photo_images.sql','20261006100000_mobile_carnet_ingestion.sql','20261006100100_mobile_carnet_media_admin.sql']) {
+  for (const name of ['20261006093935_20261006_harden_photos_profiles_photo_images.sql','20261006120757_20261006100000_mobile_carnet_ingestion.sql','20261006120815_20261006100100_mobile_carnet_media_admin.sql']) {
     await db.exec(readFileSync(new URL(`../../supabase/migrations/${name}`,import.meta.url),'utf8'));
   }
   return db;

@@ -185,7 +185,7 @@
           "peut_etre_vide": false
         }
       ],
-      "definition_de_reference": "supabase/migrations/20261006100000_mobile_carnet_ingestion.sql",
+      "definition_de_reference": "supabase/migrations/20261006120757_20261006100000_mobile_carnet_ingestion.sql",
       "raison": "Journal et médias privés utilisés par le code mobile et le serveur livré."
     },
     {
@@ -301,28 +301,28 @@
           "peut_etre_vide": false
         }
       ],
-      "definition_de_reference": "supabase/migrations/20261006100000_mobile_carnet_ingestion.sql",
+      "definition_de_reference": "supabase/migrations/20261006120757_20261006100000_mobile_carnet_ingestion.sql",
       "raison": "Journal et médias privés utilisés par le code mobile et le serveur livré."
     }
   ],
   "inconnues": [
-    "Vérifier le schéma réel et le registre des migrations dans Bolt avant application des deux fichiers.",
+    "Vérifier que les versions canoniques conservées correspondent au registre des migrations déjà appliquées dans Bolt ; ne pas rejouer les copies.",
     "Vérifier que le runtime Bolt permet les fonctions mobile-carnet et carnet-media, les RPC réservées au serveur, les uploads signés et la copie entre les buckets carnet-ingest et photos.",
     "Vérifier l'URL publique et la clé anon/publishable utilisées par le site et configurer les mêmes valeurs dans Android, sans transmettre aucun secret serveur.",
     "Les appels Storage, les gestes caméra/microphone et la recette de bout en bout restent à valider dans le projet et le téléphone de test."
   ],
-  "notes": "Le correctif de sécurité Bolt 20261006093935 est déjà conservé. Appliquer les fichiers complets ci-dessous, avec leurs RPC, triggers, contraintes, index et permissions ; ne pas remplacer ces fichiers par une création manuelle des seules colonnes. Aucun SQL exécuté ni connexion à la base réelle par le préparateur. Pas de modification de profil/rôle, billet ou coordonnée existants. Admin seulement ; GPS, carte, droits techniciens et vectorisation différés. Aucune opération demandée sur les jetons Telegram.",
+  "notes": "Le schéma ci-dessus décrit la livraison déjà appliquée selon Bolt. Aucune nouvelle migration ni réexécution demandée. Main Bolt synchronisée a994f3827390cb88d3d92eb0876e9ae96d3d1648 ; doublons de fichiers retirés sans changer leur contenu. Suivre docs/NETWORK_RECIPE.md pour le déploiement et les tests HTTP. Aucun accès à la base réelle par le préparateur. Comptes, données existantes, bucket public et droits admin conservés. GPS, carte, techniciens et vectorisation différés.",
   "livraison": {
     "repository": "clamartcelec-bot/Celecweb00h16",
     "branche": "feature/mobile-carnet-connector",
-    "base_verifiee": "1835f6af906e74b57c5c1d91ca793eaaeeea1743",
+    "base_verifiee": "a994f3827390cb88d3d92eb0876e9ae96d3d1648",
     "ordre_migrations": [
       {
-        "chemin": "supabase/migrations/20261006100000_mobile_carnet_ingestion.sql",
+        "chemin": "supabase/migrations/20261006120757_20261006100000_mobile_carnet_ingestion.sql",
         "sha256": "3617a23f3b19f21d9205936600c8cfc0e009520db20f5f1ea21f534e9db47133"
       },
       {
-        "chemin": "supabase/migrations/20261006100100_mobile_carnet_media_admin.sql",
+        "chemin": "supabase/migrations/20261006120815_20261006100100_mobile_carnet_media_admin.sql",
         "sha256": "96ccbe31ab47250ffcfaa22f4a3d08ee80661cd75081c2dd2f610b789505162b"
       }
     ],
@@ -334,6 +334,9 @@
     ],
     "dossier_de_deploiement": "docs/BOLT_DEPLOYMENT.md",
     "contrat_api": "docs/mobile-carnet-api.md",
-    "page_modifiee": "src/components/AdminDashboard.tsx"
-  }
+    "page_modifiee": "src/components/AdminDashboard.tsx",
+    "recette_reseau": "docs/NETWORK_RECIPE.md",
+    "recette_android": "docs/ANDROID_TEST_GUIDE.md"
+  },
+  "etat": "Migrations, fonctions et recette en base appliquées selon le retour Bolt du 6 octobre. Prochaine étape : recette HTTP réelle et Android ; ne pas recréer le schéma."
 }
