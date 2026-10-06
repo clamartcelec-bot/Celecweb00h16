@@ -7,6 +7,7 @@ export interface ConciergeCard {
   title: string;
   subtitle: string;
   imageUrl: string;
+  description?: string;
   brandName?: string;
 }
 

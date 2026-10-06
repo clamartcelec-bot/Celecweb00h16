@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { DESIGN_PREVIEW, PREVIEW_PROJECTS } from '@/experience/preview';
+import { GUIDE_CONTEXT_EVENT, type GuideContext } from '@/experience/events';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -12,7 +16,6 @@ import {
   MapPin,
   Mic,
   MicOff,
-  LogOut,
   Paperclip,
   Phone,
   PhoneOff,
@@ -51,6 +54,7 @@ import {
 } from '../types';
 import { ConciergeCardStack } from './ConciergeCardStack';
 import '../concierge.css';
+import '@/experience/concierge-ui.css';
 
 const TOPICS: Array<{ label: string; category: RequestCategory }> = [
   { label: "J'ai une panne", category: 'depannage' },
@@ -110,7 +114,11 @@ function brandCardHref(name: string) {
   return `/partners?brand=${encodeURIComponent(name)}`;
 }
 
-export function ConciergePage() {
+export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const reducedMotion = useReducedMotion();
+  const [previewFlow, setPreviewFlow] = useState<'idle' | 'projects' | 'appointment'>('idle');
   const [conversationId, setConversationId] = useState<string | null>(null);
 
   const {
@@ -133,6 +141,17 @@ export function ConciergePage() {
     requestResponse,
     sendUserText,
   } = useRealtimeSession(conversationId);
+
+  useEffect(() => {
+    if (status !== 'connected') return;
+    const receive = (event: Event) => {
+      const context = (event as CustomEvent<GuideContext>).detail;
+      if (context.prompt) sendUserText(context.prompt);
+      else injectSystemMessage(`CONTEXTE VISUEL : le visiteur consulte « ${context.title.slice(0, 150)} ». ${context.description?.slice(0, 450) ?? ''} Ceci est une information de navigation : ne prends pas la parole pour ce clic. Utilise ce contexte seulement si le visiteur t'interroge.`);
+    };
+    window.addEventListener(GUIDE_CONTEXT_EVENT, receive);
+    return () => window.removeEventListener(GUIDE_CONTEXT_EVENT, receive);
+  }, [status, injectSystemMessage, sendUserText]);
 
   const robotRef = useRef<ConciergeRobotHandle>(null);
   const [toolActivity, setToolActivity] = useState<ToolActivity | null>(null);
@@ -366,6 +385,7 @@ export function ConciergePage() {
         title: entry.title,
         subtitle: [entry.city, entry.brands.slice(0, 2).join(' · ')].filter(Boolean).join(' — '),
         imageUrl: entry.image_url,
+        description: entry.description,
       })));
 
       sendFunctionResult(tool.callId, {
@@ -593,7 +613,8 @@ export function ConciergePage() {
   }, [status]);
 
   const handleStart = (topic?: { label: string; category: RequestCategory }) => {
-    selectedTopicRef.current = topic?.label;
+    if (DESIGN_PREVIEW) { setPreviewFlow('projects'); return; }
+    selectedTopicRef.current = topic?.label ?? new URLSearchParams(location.search).get('topic') ?? undefined;
     isResumingRef.current = false;
     hasSubmittedRef.current = false;
     setSubmissionState('idle');
@@ -618,8 +639,7 @@ export function ConciergePage() {
   };
 
   const handleGoBack = () => {
-    handleEnd();
-    window.location.href = '/';
+    navigate('/');
   };
 
   const handleResume = () => {
@@ -696,28 +716,28 @@ export function ConciergePage() {
         cards={cards}
         ended={status === 'ended'}
         detailHrefFor={(card) => card.kind === 'carnet'
-          ? carnetUrlForSession(sessionIdRef.current)
+          ? `${carnetUrlForSession(sessionIdRef.current)}${sessionIdRef.current ? '&' : '?'}entry=${encodeURIComponent(card.id)}`
           : brandCardHref(card.brandName ?? card.title)}
       />
     );
   }, [appointmentMode, cards, status]);
 
   return (
-    <div className="concierge-page">
+    <div className={`concierge-page concierge-page--editorial ${minimized ? 'concierge-page--minimized' : ''} ${cards.length > 0 || previewFlow === 'projects' ? 'concierge-page--presenting' : ''}`}>
       <header className="concierge-header">
         <button onClick={handleGoBack} className="concierge-back" aria-label="Retour">
           <ArrowLeft size={20} />
         </button>
-        <span className="concierge-logo">CELEC</span>
-        <div className="concierge-header-spacer" />
+        <Link to="/" className="concierge-logo">CELEC<span>.</span></Link>
+        <Link to="/decouvrir" className="concierge-explore-link">Continuer la visite <ArrowLeft size={14} /></Link>
       </header>
 
-      <div className="concierge-companion">
+      <motion.div layout={!reducedMotion} layoutId="celec-companion" transition={{ type: 'spring', stiffness: 140, damping: 24 }} className="concierge-companion">
         <ConciergeRobot ref={robotRef} status={status}
           isUserSpeaking={isUserSpeaking} isAssistantSpeaking={isAssistantSpeaking}
           isResponding={isResponding} toolActivity={toolActivity} />
         <div className="concierge-companion-caption">
-          <span className="concierge-companion-name">Votre concierge CELEC</span>
+          <span className="concierge-companion-name">Le concierge numérique</span>
           <div className="concierge-status-row" role="status">
             {status === 'connected' && <span className="concierge-live-dot" />}
             <span>{status === 'connected'
@@ -730,7 +750,8 @@ export function ConciergePage() {
             </span>}
           </div>
         </div>
-      </div>
+        {minimized && <Link to="/concierge" className="concierge-return" aria-label="Revenir à la conversation avec le concierge"><span className="sr-only">Revenir à la conversation</span><Phone size={16} /></Link>}
+      </motion.div>
 
       <main className={`concierge-main ${inSession && (showRequestPanel || cards.length > 0) ? 'concierge-main--flow' : ''}`}>
         {status === 'idle' && !settings.enabled && (
@@ -743,7 +764,16 @@ export function ConciergePage() {
           </div>
         )}
 
-        {status === 'idle' && settings.enabled && (
+        {DESIGN_PREVIEW ? (
+          <div className="concierge-design-demo">
+            <div className="concierge-demo-intro"><span className="ce-eyebrow">Aperçu de la présentation</span><h1>Je vous <em>montre ?</em></h1><p>Voici comment les contenus apparaîtront pendant notre échange.<br />La voix et les envois réels se testent dans votre environnement Bolt.</p></div>
+            <div className="concierge-demo-actions"><button onClick={() => setPreviewFlow('projects')} className="concierge-quick-btn">Voir les cartes de projets</button><button onClick={() => setPreviewFlow('appointment')} className="concierge-quick-btn">Voir une demande de rendez-vous</button></div>
+            <AnimatePresence mode="wait"><motion.div key={previewFlow} initial={{ opacity: 0, y: reducedMotion ? 0 : 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              {previewFlow === 'projects' && <ConciergeCardStack cards={PREVIEW_PROJECTS.slice(0,3).map(p => ({ id: p.id, kind: 'carnet', title: p.title, subtitle: p.city, imageUrl: p.image_url, description: p.description }))} ended={false} detailHrefFor={card => `/carnet?entry=${encodeURIComponent(card.id)}`} />}
+              {previewFlow === 'appointment' && <RequestPanel draft={{ ...EMPTY_CONCIERGE_DRAFT, firstName: 'Camille', summary: 'Un projet de rénovation électrique', location: 'Clamart' }} submissionState="idle" uploading={false} uploadError={null} onFilePick={() => {}} onRemoveAttachment={() => {}} onSubmit={() => {}} />}
+            </motion.div></AnimatePresence>
+          </div>
+        ) : status === 'idle' && settings.enabled && (
           <IdleView greeting={settings.greeting} knowledgeReady={knowledgeReady} onStart={handleStart} />
         )}
         {status === 'requesting-mic' && <ConnectingView label="Autorisation du micro..." />}
@@ -828,12 +858,13 @@ function IdleView({
   return (
     <div className="concierge-idle">
       <div className="concierge-greeting">
-        <h1>Bonjour.</h1>
+        <span className="ce-eyebrow">Le concierge numérique de CELEC · disponible 24 h/24</span>
+        <h1>Je vous <em>montre ?</em></h1>
         <p>{greeting}</p>
       </div>
 
       <button onClick={() => onStart()} className="concierge-start-btn" disabled={!knowledgeReady}>
-        <Mic size={24} />
+        <Phone size={20} />
         {knowledgeReady ? 'Parler à CELEC' : 'Préparation du carnet…'}
       </button>
 
@@ -846,7 +877,7 @@ function IdleView({
       </div>
 
       <p className="concierge-disclosure">
-        Vous allez parler avec le concierge numérique de CELEC. Il s’appuie sur notre carnet d’interventions publié et sur nos partenaires pour vous répondre, et affiche à l’écran les éléments dont il parle.
+        Un échange vocal avec notre IA. Je vous présente les projets et les partenaires à l’écran, et je peux transmettre votre demande aux électriciens.
       </p>
     </div>
   );
@@ -1064,117 +1095,36 @@ function RequestPanel({
   const readyToSend = Boolean(name) && phoneOk && Boolean(objective);
   const canSend = readyToSend && !sending;
 
+  const missing = [!name && 'votre nom', !phoneOk && 'votre téléphone', !objective && 'l’objet de votre demande'].filter(Boolean);
+  const [expanded, setExpanded] = useState(false);
   return (
-    <aside className="concierge-request-panel" aria-live="polite">
-      <div className="concierge-panel-title">
-        <ClipboardList size={18} />
-        <span>Prise de rendez-vous</span>
-        {sent && !canSend && <span className="concierge-submit-status concierge-submit-status--sent">Transmise</span>}
-      </div>
-
-      <div className="concierge-field">
-        <span className="concierge-field-label">Nom</span>
-        <span className={`concierge-field-value ${name ? 'concierge-field-value--ok' : 'concierge-field-value--missing'}`}>
-          {name || 'À préciser'}
-        </span>
-      </div>
-
-      <div className="concierge-field">
-        <span className="concierge-field-label">Téléphone</span>
-        <span className={`concierge-field-value concierge-field-value--spaced ${phoneOk ? 'concierge-field-value--ok' : 'concierge-field-value--missing'}`}>
-          {phone || 'À préciser'}
-        </span>
-      </div>
-
-      <div className="concierge-field">
-        <span className="concierge-field-label">Adresse</span>
-        <span className={`concierge-field-value ${draft.location ? 'concierge-field-value--ok' : ''}`}>
-          {draft.location || 'Facultatif'}
-        </span>
-      </div>
-
-      {draft.category && (
-        <PanelLine icon={<ClipboardList size={15} />} label="Type" value={CATEGORY_LABELS[draft.category]} />
-      )}
-      {draft.siteType && <PanelLine icon={<MapPin size={15} />} label="Site" value={draft.siteType} />}
-      {draft.urgency && (
-        <PanelLine icon={<AlertTriangle size={15} />} label="Priorité" value={URGENCY_LABELS[draft.urgency]} />
-      )}
-      {draft.availability && (
-        <PanelLine icon={<Clock3 size={15} />} label="Disponibilités" value={draft.availability} />
-      )}
-
-      <div className="concierge-panel-objective">
-        <span className={`concierge-panel-objective-label ${objective ? 'concierge-panel-objective-label--ok' : 'concierge-panel-objective-label--missing'}`}>
-          Objet de l’appel
-        </span>
-        <p className={objective ? '' : 'concierge-panel-objective-empty'}>
-          {objective || 'À préciser pendant l’échange.'}
-        </p>
-      </div>
-
-      <div className="concierge-panel-files">
-        <label className="concierge-file-btn">
-          {uploading ? <Loader2 size={15} className="concierge-spin" /> : <Paperclip size={15} />}
-          Ajouter une photo ou une vidéo
-          <input
-            type="file"
-            accept="image/*,video/*"
-            onChange={onFilePick}
-            hidden
-          />
-        </label>
-
-        {uploadError && <p className="concierge-file-error">{uploadError}</p>}
-
-        {draft.attachments.length > 0 && (
-          <ul className="concierge-file-list">
-            {draft.attachments.map((url) => (
-              <li key={url}>
-                <Camera size={13} />
-                <span>{url.split('/').pop()}</span>
-                <button onClick={() => onRemoveAttachment(url)} aria-label="Retirer le fichier">
-                  <X size={13} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {draft.nextStep && (
-        <div className="concierge-panel-next">
-          <CheckCircle2 size={15} />
-          <span>{draft.nextStep}</span>
-        </div>
-      )}
-
-      <button
-        onClick={onSubmit}
-        disabled={!canSend}
-        className={`concierge-submit-btn ${readyToSend ? 'concierge-submit-btn--ready' : ''} ${sent && !readyToSend ? 'concierge-submit-btn--sent' : ''}`}
-      >
-        {sending && <Loader2 size={16} className="concierge-spin" />}
-        {sent && !sending && <CheckCircle2 size={16} />}
-        {sending ? 'Envoi…' : sent ? 'Renvoyer la demande' : 'Envoyer la demande'}
-      </button>
-
-      {onExit && (
-        <button onClick={onExit} className="concierge-exit-btn">
-          <LogOut size={14} />
-          Sortir de la prise de rendez-vous
+    <motion.aside layout className={`concierge-request-panel ${sent ? 'concierge-request-panel--sent' : ''}`} aria-live="polite">
+      <div className="concierge-request-tab">
+        <button onClick={() => setExpanded(value => !value)} className="concierge-request-summary" aria-expanded={expanded}>
+          {sent ? <CheckCircle2 size={19} /> : <ClipboardList size={19} />}
+          <span><strong>{sent ? 'Transmise aux techniciens CELEC' : 'Demande de rendez-vous'}</strong><small>{sent ? 'Nous vous recontacterons dès que possible.' : missing.length ? `Il manque ${missing.join(', ')}.` : 'Votre demande est prête à être transmise.'}</small></span>
+          <ChevronDown size={16} className={expanded ? 'cc-chevron--up' : ''} />
         </button>
-      )}
-
-      {!readyToSend && !sent && (
-        <p className="concierge-panel-hint">
-          Le nom, le téléphone et l’objet de l’appel sont nécessaires pour envoyer la demande.
-        </p>
-      )}
-      {submissionState === 'error' && (
-        <p className="concierge-file-error">L’envoi a échoué. Réessayez dans quelques instants.</p>
-      )}
-    </aside>
+        {!sent && <button onClick={onSubmit} disabled={!canSend} className={`concierge-submit-btn ${readyToSend ? 'concierge-submit-btn--ready' : ''}`}>
+          {sending ? <Loader2 size={15} className="concierge-spin" /> : <CheckCircle2 size={15} />}{sending ? 'Envoi…' : 'Valider'}
+        </button>}
+      </div>
+      {!sent && <div className="concierge-request-minimum"><span>{name || 'Votre nom'}</span><span className={phoneOk ? '' : 'is-missing'}>{phone || 'Téléphone à préciser'}</span><span>{objective || 'Votre besoin'}</span></div>}
+      <AnimatePresence initial={false}>{expanded && <motion.div className="concierge-request-details" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
+        <p className="concierge-panel-hint">La fiche se remplit pendant notre échange. Dites-moi ce que vous souhaitez corriger.</p>
+        {draft.location && <PanelLine icon={<MapPin size={15} />} label="Lieu" value={draft.location} />}
+        {draft.category && <PanelLine icon={<ClipboardList size={15} />} label="Besoin" value={CATEGORY_LABELS[draft.category]} />}
+        {draft.siteType && <PanelLine icon={<MapPin size={15} />} label="Site" value={draft.siteType} />}
+        {draft.urgency && <PanelLine icon={<AlertTriangle size={15} />} label="Priorité" value={URGENCY_LABELS[draft.urgency]} />}
+        {draft.availability && <PanelLine icon={<Clock3 size={15} />} label="Disponibilités" value={draft.availability} />}
+        {objective && <p className="concierge-request-object">{objective}</p>}
+        <div className="concierge-panel-files"><label className="concierge-file-btn">{uploading ? <Loader2 size={15} className="concierge-spin" /> : <Paperclip size={15} />} Ajouter une photo ou une vidéo<input type="file" accept="image/*,video/*" onChange={onFilePick} hidden disabled={sent || uploading || DESIGN_PREVIEW} /></label>
+          {draft.attachments.length > 0 && <ul className="concierge-file-list">{draft.attachments.map(url => <li key={url}><Camera size={13} /><span>{url.split('/').pop()}</span><button onClick={() => onRemoveAttachment(url)} aria-label="Retirer le fichier"><X size={13} /></button></li>)}</ul>}
+        </div>
+        {onExit && <button onClick={onExit} className="concierge-exit-btn">Revenir à la découverte</button>}
+      </motion.div>}</AnimatePresence>
+      {(uploadError || submissionState === 'error') && <p className="concierge-file-error">{uploadError || 'La transmission a échoué. Votre fiche est conservée : vous pouvez réessayer.'}</p>}
+    </motion.aside>
   );
 }
 
@@ -1224,4 +1174,3 @@ function EndedView({ draft, onRestart, onResume, onBack }: { draft: ConciergeDra
     </div>
   );
 }
-

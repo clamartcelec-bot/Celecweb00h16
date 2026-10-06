@@ -85,6 +85,7 @@ export const ConciergeRobot = forwardRef<ConciergeRobotHandle, Props>(function C
     class: 'concierge-robot',
     label: 'Le petit robot électricien CELEC',
     'auto-blink': '',
+    'follow-pointer': '',
     'no-toolbox': '',
     'no-shadow': '',
     'data-mode': mode,

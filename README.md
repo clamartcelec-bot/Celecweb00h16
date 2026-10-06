@@ -4,7 +4,7 @@
 
 ## Configuration
 
-Le concierge vocal utilise les variables Netlify suivantes :
+Le concierge vocal appelle la fonction Supabase `realtime-session`. Elle utilise les secrets serveur suivants dans l’environnement géré par Bolt/Supabase :
 
 - `OPENAI_API_KEY` (obligatoire)
 - `REALTIME_MODEL` (facultatif, valeur par défaut : `gpt-realtime-2.1-mini`)
@@ -18,9 +18,33 @@ La fonction Supabase `telegram-notify` utilise des secrets Supabase, jamais des 
 Après toute exposition d'un jeton Telegram dans Git, il faut le révoquer auprès de BotFather, générer un nouveau jeton, enregistrer ce nouveau secret dans Supabase puis redéployer la fonction.
 
 
+## Interface et découverte guidée
+
+La branche de conception utilise le robot SVG existant et `motion/react` (Motion pour React,
+anciennement Framer Motion). L’accueil, `/decouvrir` et `/concierge` partagent une présence
+persistante. La conversation reste montée pendant les déplacements dans le site ; seul
+« Raccrocher » termine l’appel. Les clics de consultation donnent du contexte silencieux ;
+les invitations explicites au guide déclenchent une réponse pendant un appel déjà actif.
+Le premier appel requiert toujours un clic et l’autorisation du microphone.
+
+La fiche de rendez-vous reste en lecture seule, se complète par la conversation et propose
+une seule validation. Après l’envoi réussi elle se compacte avec un message de reprise humaine.
+Les cartes s’ouvrent dans le site, sans nouvel onglet ni interruption de l’appel.
+
+Pour un aperçu de conception déconnecté (photos d’illustration, aucun appel ou envoi réel) :
+
+```sh
+VITE_CELEC_DESIGN_PREVIEW=true npm run build
+```
+
+Sans ce drapeau, le même code utilise les contenus et les fonctions Supabase existants.
+Aucune migration ni modification des fonctions serveur n’est requise pour cette interface.
+Le fichier `netlify.toml` est une configuration historique de publication ; le concierge actuel
+n’en dépend pas.
+
 ## Robot du concierge vocal
 
-Le personnage approuvé remplace l’ancien avatar « CE » sur `/concierge`. Il reste en haut à gauche,
+Le personnage approuvé remplace l’ancien avatar « CE » sur `/concierge`. Il accompagne la page et se place sur le côté sur ordinateur,
 avec un fond transparent, une petite casquette rose, deux sourcils, des pupilles indépendantes,
 deux mains et un tournevis. Le composant conserve une instance unique entre les états de connexion.
 

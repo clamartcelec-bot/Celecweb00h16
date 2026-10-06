@@ -18,7 +18,7 @@ export const DEFAULT_CONCIERGE_SETTINGS: ConciergeSettings = {
   id: 1,
   enabled: true,
   greeting:
-    'Bonjour, bienvenue chez CELEC, votre électricien à Clamart et ses environs. Dites-moi en quoi puis-je vous être utile. Vous voulez un dépannage, vous voulez des renseignements sur notre société. On est là pour ça. Dites-moi ce que vous voulez.',
+    'Laissez-moi vous montrer ce qu’on fait chez CELEC. Un projet en tête, une question ou l’envie de découvrir ? Je suis là pour vous guider.',
   tone: '',
   prompt: '',
   site_info: '',
