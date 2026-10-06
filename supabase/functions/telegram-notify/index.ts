@@ -7,8 +7,8 @@ const corsHeaders = {
     "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const BOT_TOKEN = "8660052613:AAHJk6xTRUge7EbFHg-YBwobdjrv8DXy6-I";
-const CHAT_ID = "1232272455";
+const BOT_TOKEN = Deno.env.get("TELEGRAM_NOTIFY_BOT_TOKEN") ?? "";
+const CHAT_ID = Deno.env.get("TELEGRAM_NOTIFY_CHAT_ID") ?? "";
 
 interface NotifyBody {
   category?: string;
