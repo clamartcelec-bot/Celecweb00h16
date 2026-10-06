@@ -5,6 +5,8 @@ import type { ConnectionStatus, ToolActivity } from '@/concierge/hooks/useRealti
 
 export interface ConciergeRobotHandle {
   setAudioAmplitude(value: number): void;
+  present(target: Element): void;
+  acknowledge(): void;
 }
 interface Props {
   status: ConnectionStatus;
@@ -29,6 +31,8 @@ export const ConciergeRobot = forwardRef<ConciergeRobotHandle, Props>(function C
     setAudioAmplitude(value) {
       element.current?.setAmplitude(speaking.current ? value : 0);
     },
+    present(target) { element.current?.lookAtElement(target); void element.current?.hands(); },
+    acknowledge() { if (!speaking.current) void element.current?.nod(); },
   }), []);
 
   useEffect(() => {
@@ -85,6 +89,7 @@ export const ConciergeRobot = forwardRef<ConciergeRobotHandle, Props>(function C
     class: 'concierge-robot',
     label: 'Le petit robot électricien CELEC',
     'auto-blink': '',
+    'follow-pointer': '',
     'no-toolbox': '',
     'no-shadow': '',
     'data-mode': mode,

@@ -1,4 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { presentToGuide } from '@/experience/events';
 import {
   AnimatePresence,
   motion,
@@ -45,8 +47,8 @@ export function CardChip({ card, index, featured = false, sizeClass = '', detail
       const rect = node.getBoundingClientRect();
       const ratioX = (event.clientX - rect.left) / rect.width;
       const ratioY = (event.clientY - rect.top) / rect.height;
-      tiltYTarget.set((ratioX - 0.5) * 10);
-      tiltXTarget.set((0.5 - ratioY) * 10);
+      tiltYTarget.set((ratioX - 0.5) * 5);
+      tiltXTarget.set((0.5 - ratioY) * 5);
       spotlightX.set(event.clientX - rect.left);
       spotlightY.set(event.clientY - rect.top);
     },
@@ -65,7 +67,7 @@ export function CardChip({ card, index, featured = false, sizeClass = '', detail
     <motion.article
       ref={cardRef}
       layout={!reduceMotion}
-      className={`cc-card ${featured ? 'cc-card--featured' : ''} ${sizeClass} ${expanded ? 'cc-card--open' : ''}`}
+      className={`cc-card ${!isCarnet ? 'cc-card--brand' : ''} ${featured ? 'cc-card--featured' : ''} ${sizeClass} ${expanded ? 'cc-card--open' : ''}`}
       initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97 }}
@@ -84,7 +86,7 @@ export function CardChip({ card, index, featured = false, sizeClass = '', detail
         transition={{ duration: 0.25 }}
       />
 
-      <button className="cc-card-btn" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
+      <button className="cc-card-btn" onClick={() => { setExpanded((value) => !value); presentToGuide({ title: card.title, description: card.description }); }} aria-expanded={expanded}>
         <span className="cc-media">
           {card.imageUrl
             ? <img src={card.imageUrl} alt="" loading="lazy" />
@@ -92,7 +94,7 @@ export function CardChip({ card, index, featured = false, sizeClass = '', detail
               ? <span className="cc-media-fallback"><Camera size={26} /></span>
               : <span className="cc-media-fallback cc-media-fallback--brand"><Handshake size={26} /></span>}
           <span className="cc-overlay">
-            <span className="cc-badge">{isCarnet ? 'Carnet' : 'Marque'}</span>
+            <span className="cc-badge">{isCarnet ? 'Carnet de projets' : 'Notre expérience'}</span>
             <strong>{card.title}</strong>
             {card.subtitle && <em>{card.subtitle}</em>}
           </span>
@@ -117,14 +119,12 @@ export function CardChip({ card, index, featured = false, sizeClass = '', detail
           >
             <div className="cc-detail-inner">
               <p>
-                {isCarnet
-                  ? 'Ce billet du carnet CELEC a été présenté pendant la conversation.'
-                  : 'Cette marque fait partie des références que nous installons et dépannons.'}
+                {card.description || (isCarnet ? 'Retrouvez le récit et les photos de ce projet dans le Carnet.' : 'Découvrez notre expérience et les projets liés à cette référence.')}
               </p>
-              <a className="cc-link" href={detailHref} target="_blank" rel="noreferrer">
-                {isCarnet ? 'Ouvrir le billet' : 'Ouvrir la fiche'}
+              <Link className="cc-link" to={detailHref}>
+                {isCarnet ? 'Découvrir le projet' : 'Découvrir la fiche'}
                 <ArrowUpRight size={14} />
-              </a>
+              </Link>
             </div>
           </motion.div>
         )}

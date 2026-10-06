@@ -1,4 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { HomeExperience } from '@/experience/HomeExperience';
+import { DiscoveryPage } from '@/experience/DiscoveryPage';
+import { GUIDE_REVEAL_EVENT, presentToGuide } from '@/experience/events';
+import { DESIGN_PREVIEW, PREVIEW_PROJECTS, PREVIEW_PARTNERS } from '@/experience/preview';
 import {
   ArrowRight,
   Lock,
@@ -44,7 +49,7 @@ import { CONCIERGE_SESSION_PARAM, currentConciergeSession } from '@/lib/concierg
 import { findPresentedEntry } from '@/concierge/services/presence';
 
 type Lang = 'fr' | 'en' | 'es' | 'ar';
-type View = 'home' | 'carnet' | 'partners' | 'blocktech' | 'admin-login' | 'admin';
+type View = 'home' | 'discovery' | 'contact' | 'carnet' | 'partners' | 'blocktech' | 'admin-login' | 'admin';
 type Theme = 'light' | 'dark';
 
 interface Photo {
@@ -322,19 +327,7 @@ const languages: { code: Lang; flag: string; label: string }[] = [
   { code: 'ar', flag: '\ud83c\uddf8\ud83c\udde6', label: '\u0627\u0644\u0639\u0631\u0628\u064a\u0629' },
 ];
 
-const serviceList = [
-  { icon: Zap, label: { fr: 'D\u00e9pannage', en: 'Troubleshooting', es: 'Reparaciones', ar: '\u0625\u0635\u0644\u0627\u062d\u0627\u062a' }, desc: 'Pannes, recherche de d\u00e9faut, remise en service.' },
-  { icon: Wrench, label: { fr: 'Travaux & r\u00e9novation', en: 'Renovation', es: 'Obras y renovaci\u00f3n', ar: '\u0623\u0634\u063a\u0627\u0644 \u0648\u062a\u062c\u062f\u064a\u062f' }, desc: 'Tableaux, lignes, mise en s\u00e9curit\u00e9, remise aux normes.' },
-  { icon: Lightbulb, label: { fr: 'Projets & installations', en: 'Projects', es: 'Proyectos e instalaciones', ar: '\u0645\u0634\u0627\u0631\u064a\u0639 \u0648\u062a\u0631\u0643\u064a\u0628\u0627\u062a' }, desc: '\u00c9clairage, domotique, maisons, copropri\u00e9t\u00e9s, locaux pros.' },
-];
-
 const PAGE_SIZE = 20;
-
-const teamMembers = [
-  { name: 'L\u00e9a', role: '\u00c9lectricit\u00e9 & relation client', bio: 'Elle relie les d\u00e9tails techniques aux usages du quotidien.' },
-  { name: 'Marc', role: 'D\u00e9pannage & r\u00e9novation', bio: 'Il comprend pourquoi une installation raconte une autre histoire.' },
-  { name: 'No\u00e9', role: 'Installations & \u00e9clairage', bio: 'Il pense les lignes et la lumi\u00e8re pour qu\u2019ils tiennent dans le temps.' },
-];
 
 /* ─── Leaflet map component ─── */
 function InterventionMap({ cityGroups, theme, onCityClick, selectedCity }: { cityGroups: CityGroup[]; theme: Theme; onCityClick?: (city: string) => void; selectedCity?: string | null }) {
@@ -395,11 +388,13 @@ function InterventionMap({ cityGroups, theme, onCityClick, selectedCity }: { cit
 
 /* ─── App ─── */
 function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [lang, setLang] = useState<Lang>('fr');
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setTheme] = useState<Theme>('light');
   const [view, setView] = useState<View>('home');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [photos, setPhotos] = useState<Photo[]>(DESIGN_PREVIEW ? PREVIEW_PROJECTS : []);
   const [cityGroups, setCityGroups] = useState<CityGroup[]>([]);
   const [freeText, setFreeText] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -411,9 +406,9 @@ function App() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [resetMode, setResetMode] = useState<'request' | 'update' | null>(null);
   const [resetExpired, setResetExpired] = useState(false);
-  const [carnetEntries, setCarnetEntries] = useState<Photo[]>([]);
+  const [carnetEntries, setCarnetEntries] = useState<Photo[]>(DESIGN_PREVIEW ? PREVIEW_PROJECTS : []);
   const [carnetLoading, setCarnetLoading] = useState(false);
-  const [carnetHasMore, setCarnetHasMore] = useState(true);
+  const [carnetHasMore, setCarnetHasMore] = useState(!DESIGN_PREVIEW);
   const [carnetDetail, setCarnetDetail] = useState<Photo | null>(null);
   const [brandView, setBrandView] = useState<{ name: string; partner: Partner | null } | null>(null);
   const [brandReturn, setBrandReturn] = useState<string | null>(null);
@@ -429,7 +424,7 @@ function App() {
 
   const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [partners, setPartners] = useState<Partner[]>([]);
+  const [partners, setPartners] = useState<Partner[]>(DESIGN_PREVIEW ? PREVIEW_PARTNERS : []);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [newRating, setNewRating] = useState(0);
@@ -439,6 +434,45 @@ function App() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [clientSpaceOpen, setClientSpaceOpen] = useState(false);
   const t = copy[lang];
+  useEffect(() => {
+    const reveal = () => { setCarnetDetail(null); setBrandView(null); setMapExpanded(false); };
+    window.addEventListener(GUIDE_REVEAL_EVENT, reveal);
+    return () => window.removeEventListener(GUIDE_REVEAL_EVENT, reveal);
+  }, []);
+  useEffect(() => {
+    if (!mapExpanded) return;
+    const previous = document.activeElement;
+    const timer = window.setTimeout(() => document.querySelector<HTMLButtonElement>('.ce-map-overlay .map-close')?.focus(), 0);
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setMapExpanded(false); };
+    window.addEventListener('keydown', close);
+    return () => { window.clearTimeout(timer); window.removeEventListener('keydown', close); if (previous instanceof HTMLElement) previous.focus(); };
+  }, [mapExpanded]);
+
+
+  useEffect(() => {
+    const routes: Record<string, View> = { '/': 'home', '/decouvrir': 'discovery', '/carnet': 'carnet', '/partners': 'partners', '/contact': 'contact', '/blocktech': 'blocktech', '/admin': 'admin-login' };
+    if (routes[location.pathname]) setView(routes[location.pathname]);
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        document.querySelector<HTMLButtonElement>(window.innerWidth <= 768 ? '.burger' : '.ce-nav-menu-trigger')?.focus();
+      }
+    };
+    const outside = (event: MouseEvent) => { if (event.target instanceof Element && !event.target.closest('.hdr')) setMenuOpen(false); };
+    window.addEventListener('keydown', dismiss);
+    window.addEventListener('mousedown', outside);
+    return () => { window.removeEventListener('keydown', dismiss); window.removeEventListener('mousedown', outside); };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (DESIGN_PREVIEW) setCityGroups(PREVIEW_PROJECTS.map(p => ({ city: p.city, count: 1, lat: p.lat, lng: p.lng })));
+  }, []);
+
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -525,15 +559,15 @@ function App() {
 
     if (brand) {
       pendingBrandRef.current = brand;
-      go('partners');
+      setView('partners');
       return;
     }
     if (conciergeSession) {
       pendingConciergeEntry.current = true;
       setConciergeReturn(conciergeSession);
-      go('carnet');
+      setView('carnet');
     }
-  }, []);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     const brand = pendingBrandRef.current;
@@ -565,6 +599,17 @@ function App() {
     });
     return () => { active = false; };
   }, [conciergeReturn, carnetEntries, photos]);
+
+  useEffect(() => {
+    const entryId = new URLSearchParams(location.search).get('entry');
+    if (!entryId) return;
+    const known = photos.find(p => p.id === entryId) ?? carnetEntries.find(p => p.id === entryId);
+    if (known) { setCarnetDetail(known); return; }
+    if (!supabase) return;
+    let active = true;
+    supabase.from('photos').select('*, photo_images(id, image_url, caption, position)').eq('id', entryId).eq('published', true).maybeSingle().then(({ data }) => { if (active && data) setCarnetDetail(data); });
+    return () => { active = false; };
+  }, [location.search, photos, carnetEntries]);
 
   const loadComments = useCallback(async (targetType: string, targetId: string) => {
     if (!supabase) return;
@@ -640,6 +685,7 @@ function App() {
     setCarnetDetail(null);
     setBrandReturn(null);
     setBrandView({ name, partner });
+    presentToGuide({ title: `Partenaire : ${name}`, description: partner?.description });
     if (partner) loadComments('partner', partner.id);
     else setComments([]);
   };
@@ -648,6 +694,7 @@ function App() {
     setBrandView(null);
     setBrandReturn(fromBrand ?? null);
     setCarnetDetail(entry);
+    presentToGuide({ title: `Projet : ${entry.title}`, description: entry.description ?? '' });
   };
 
   const closeAllOverlays = () => {
@@ -667,6 +714,9 @@ function App() {
 
   const go = (v: View) => {
     setView(v);
+    const paths: Partial<Record<View, string>> = { home: '/', discovery: '/decouvrir', carnet: '/carnet', partners: '/partners', contact: '/contact', blocktech: '/blocktech' };
+    if (paths[v]) navigate(paths[v]!);
+    presentToGuide({ title: v === 'carnet' ? 'Le Carnet de projets' : v === 'partners' ? 'Les partenaires' : v === 'discovery' ? 'Notre savoir-faire' : 'CELEC' });
     setMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -704,7 +754,8 @@ function App() {
     const phone = !userEmail ? guestPhone.trim() : undefined;
     setSendStatus('sending');
     setTelegramOk(null);
-    await sendToDb(cat, desc, source, phone);
+    const success = await sendToDb(cat, desc, source, phone);
+    if (!success) return;
     setContactCategory(null);
     setFreeText('');
     resetVoiceRecording();
@@ -714,8 +765,10 @@ function App() {
 
   const sendToDb = async (category: string, description: string, source: string, phone?: string) => {
     try {
+      if (DESIGN_PREVIEW) { setSendStatus('error'); return false; }
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !anonKey) { setSendStatus('error'); return false; }
       if (supabaseUrl && anonKey) {
         const res = await fetch(`${supabaseUrl}/functions/v1/telegram-notify`, {
           method: "POST",
@@ -731,36 +784,43 @@ function App() {
             guest_phone: phone,
           }),
         });
-        if (!res.ok) { setSendStatus('error'); return; }
+        if (!res.ok) { setSendStatus('error'); return false; }
         const data = await res.json();
+        if (data.success !== true) { setSendStatus('error'); return false; }
         setTelegramOk(data.telegram === true);
       }
       setSendStatus('sent');
-      setTimeout(() => { setSendStatus('idle'); setTelegramOk(null); }, 5000);
+      return true;
     } catch {
       setSendStatus('error');
-      setTimeout(() => setSendStatus('idle'), 4000);
+      return false;
     }
   };
 
   return (
-    <div className="app">
+    <div className="app ce-experience">
       {view !== 'admin' && (
       <header className="hdr">
         <button className="logo" onClick={() => go('home')}>CELEC<span className="logo-dot">.</span></button>
-        <nav className={`nav ${menuOpen ? 'open' : ''}`}>
-          <button onClick={() => go('home')}>{t.services}</button>
+        <nav aria-label="Navigation principale" className={`nav ${menuOpen ? 'open' : ''}`}>
           <button onClick={() => go('carnet')}>{t.carnet}</button>
           <button onClick={() => go('partners')}>{t.partners}</button>
-          <a href="/concierge" className="nav-concierge-link">Concierge</a>
+          <div className="ce-nav-menu">
+            <button className="ce-nav-menu-trigger" aria-expanded={menuOpen} aria-controls="ce-nav-more" onClick={() => setMenuOpen(value => !value)}>Menu <ChevronDown size={13} /></button>
+            {menuOpen && <div id="ce-nav-more" className="ce-nav-more">
+              <Link to="/decouvrir" onClick={() => { setMenuOpen(false); presentToGuide({ title: 'Notre savoir-faire', prompt: 'Le visiteur souhaite découvrir notre savoir-faire.' }); }}>Notre savoir-faire</Link>
+              <button onClick={() => go('contact')}>Nous contacter</button>
+              <button onClick={() => go('blocktech')}>BlockTech</button>
+            </div>}
+          </div>
         </nav>
         <div className="hdr-right">
           <button className="guest-btn" onClick={() => userEmail ? setClientSpaceOpen(true) : setLoginOpen(true)}>
             <UserRound size={15} />
-            <span>{userEmail ? userEmail.split('@')[0] : (lang === 'fr' ? 'Invit\u00e9' : lang === 'es' ? 'Invitado' : lang === 'ar' ? '\u0632\u0627\u0626\u0631' : 'Guest')}</span>
+            <span>{userEmail ? userEmail.split('@')[0] : (lang === 'fr' ? 'Mon espace' : lang === 'es' ? 'Invitado' : lang === 'ar' ? '\u0632\u0627\u0626\u0631' : 'Guest')}</span>
           </button>
           <div className="settings-wrap" ref={settingsRef}>
-            <button className="settings-btn" onClick={() => { setSettingsOpen(!settingsOpen); setLangSubOpen(false); }}>
+            <button aria-label="Réglages" className="settings-btn" onClick={() => { setSettingsOpen(!settingsOpen); setLangSubOpen(false); }}>
               <Settings size={18} />
             </button>
             {settingsOpen && (
@@ -808,91 +868,24 @@ function App() {
               </div>
             )}
           </div>
-          <button className="burger" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={22} /> : <Menu size={22} />}</button>
+          <button className="burger" aria-label="Menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={22} /> : <Menu size={22} />}</button>
         </div>
       </header>
       )}
 
       <main>
+        {view !== 'home' && <div id="ce-live-presentation" className="ce-live-presentation" />}
         {view === 'home' && (
           <>
-            {/* HERO */}
-            <section className="hero hero-new">
-              <div className="hero-content">
-                <div className="hero-badge">CELEC<span className="logo-dot">.</span></div>
-                <h1>{t.heroTitle}</h1>
-                <p className="hero-sub">{t.heroSub}</p>
-                <div className="hero-cats">
-                  <button className="hero-cat" onClick={() => { setContactCategory('depannage'); document.getElementById('contact-box')?.scrollIntoView({ behavior: 'smooth' }); }}>
-                    <Zap size={18} /><span>{t.catDepannage}</span>
-                  </button>
-                  <button className="hero-cat" onClick={() => { setContactCategory('chantier'); document.getElementById('contact-box')?.scrollIntoView({ behavior: 'smooth' }); }}>
-                    <Wrench size={18} /><span>{t.catChantier}</span>
-                  </button>
-                  <button className="hero-cat" onClick={() => { setContactCategory('projet'); document.getElementById('contact-box')?.scrollIntoView({ behavior: 'smooth' }); }}>
-                    <Lightbulb size={18} /><span>{t.catProjet}</span>
-                  </button>
-                </div>
-              </div>
-              <div className="hero-visual">
-                <img src="/pink-van.webp" alt="CELEC" className="hero-van" />
-                <div className="hero-map-mini" onClick={() => setMapExpanded(true)}>
-                  <InterventionMap cityGroups={cityGroups} theme={theme} />
-                  <div className="hero-map-label"><MapPin size={12} /> {cityGroups.length} communes <ChevronDown size={12} /></div>
-                </div>
-              </div>
-            </section>
-
-            {/* MAP EXPANDED */}
-            {mapExpanded && (
-              <section className="map-section">
-                <div className="map-header">
-                  <h2>{t.around}</h2>
-                  <p>{t.aroundSub}</p>
-                  <button className="map-close" onClick={() => setMapExpanded(false)}><X size={16} /></button>
-                </div>
-                <div className="map-wrap">
-                  <InterventionMap
-                    cityGroups={cityGroups}
-                    theme={theme}
-                    selectedCity={mapSelectedCity}
-                    onCityClick={(city) => {
-                      setMapSelectedCity(prev => prev === city ? null : city);
-                    }}
-                  />
-                  <div className="map-legend">
-                    <MapPin size={14} /> {photos.length} photos &middot; {cityGroups.length} communes
-                    {mapSelectedCity && (
-                      <button className="map-filter-badge" onClick={() => setMapSelectedCity(null)}>
-                        <X size={12} /> {mapSelectedCity}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {mapSelectedCity && (
-                  <div className="map-city-entries">
-                    <h3><MapPin size={14} /> {mapSelectedCity}</h3>
-                    <div className="map-city-grid">
-                      {photos.filter(p => p.city === mapSelectedCity).map(p => (
-                        <article key={p.id} className="map-city-card" onClick={() => setCarnetDetail(p)}>
-                          {p.image_url
-                            ? <img src={p.image_url} alt={p.title} loading="lazy" />
-                            : <div className="map-city-placeholder"><Camera size={18} /></div>}
-                          <div className="map-city-overlay">
-                            <h4>{p.title}</h4>
-                            <span>{fmtDateShort(p.created_at)}</span>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                    {photos.filter(p => p.city === mapSelectedCity).length === 0 && (
-                      <p className="map-city-empty">Aucune photo pour cette ville.</p>
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
-
+            <HomeExperience projects={photos} partners={partners}
+              onProject={p => { const full = photos.find(photo => photo.id === p.id); if (full) openCarnetDetail(full); }}
+              onCarnet={() => go('carnet')} onPartners={() => go('partners')} onPartner={p => openBrand(p.name, partners.find(partner => partner.id === p.id) ?? null)}
+              onCallback={() => setCallbackOpen(true)} onMap={city => { setMapSelectedCity(city ?? null); setMapExpanded(true); }} />
+          </>
+        )}
+        {view === 'discovery' && <DiscoveryPage projects={photos} onProject={p => { const full = photos.find(photo => photo.id === p.id); if (full) openCarnetDetail(full); }} />}
+        {view === 'contact' && <>
+          <section className="ce-section ce-contact-heading"><span className="ce-eyebrow">Le relais humain</span><h1>Gardons <em>le fil.</em></h1><p>Décrivez votre besoin ou demandez à être rappelé par l’équipe.</p><button className="ce-button ce-button--dark" onClick={() => setCallbackOpen(true)}><Phone size={16} /> Être rappelé par l’équipe</button></section>
             {/* CONTACT BOX */}
             <section className="sec" id="contact-box">
               <div className="cb-card">
@@ -959,8 +952,8 @@ function App() {
                     <CheckCircle2 size={15} />
                     <span>
                       {t.sent}{' '}
-                      {telegramOk === true && <span className="cb-confirm-sub">— notifie sur Telegram</span>}
-                      {telegramOk === false && <span className="cb-confirm-sub">— enregistre (Telegram en attente)</span>}
+                      {telegramOk === true && <span className="cb-confirm-sub">— l’équipe reprend le relais</span>}
+                      {telegramOk === false && <span className="cb-confirm-sub">— enregistrée pour l’équipe CELEC</span>}
                     </span>
                   </div>
                 )}
@@ -1008,74 +1001,59 @@ function App() {
               </div>
             </section>
 
-            {/* SERVICES */}
-            <section className="sec">
-              <h2>{t.services}</h2>
-              <div className="svc-grid">
-                {serviceList.map((s, i) => (
-                  <div className="svc-card" key={i}>
-                    <s.icon size={22} className="svc-icon" />
-                    <h3>{s.label[lang]}</h3>
-                    <p>{s.desc}</p>
+        </>}
+        {mapExpanded && <div className="ce-map-overlay" role="dialog" aria-modal="true" aria-label="Nos projets sur la carte">
+            {/* MAP EXPANDED */}
+            {mapExpanded && (
+              <section className="map-section">
+                <div className="map-header">
+                  <h2>Nos projets sur la carte</h2>
+                  <p>Les lieux documentés dans notre Carnet de projets.</p>
+                  <button aria-label="Fermer la carte" className="map-close" onClick={() => setMapExpanded(false)}><X size={16} /></button>
+                </div>
+                <div className="map-wrap">
+                  <InterventionMap
+                    cityGroups={cityGroups}
+                    theme={theme}
+                    selectedCity={mapSelectedCity}
+                    onCityClick={(city) => {
+                      setMapSelectedCity(prev => prev === city ? null : city);
+                    }}
+                  />
+                  <div className="map-legend">
+                    <MapPin size={14} /> {photos.length} photos &middot; {cityGroups.length} communes
+                    {mapSelectedCity && (
+                      <button className="map-filter-badge" onClick={() => setMapSelectedCity(null)}>
+                        <X size={12} /> {mapSelectedCity}
+                      </button>
+                    )}
                   </div>
-                ))}
-              </div>
-              <div className="bt-line">
-                <p>{t.blocktechNote}</p>
-                <button onClick={() => go('blocktech')}>BlockTech <ArrowRight size={14} /></button>
-              </div>
-            </section>
-
-            {/* METHOD */}
-            <section className="sec sec-alt">
-              <h2>{t.method}</h2>
-              <p className="sec-text">{t.methodText}</p>
-              <div className="steps">
-                {['\u00c9couter', 'Comprendre', 'Documenter', 'Garder le fil'].map((s, i) => (
-                  <div className="step" key={i}><span className="step-n">0{i + 1}</span><span>{s}</span></div>
-                ))}
-              </div>
-            </section>
-
-            {/* CARNET PREVIEW */}
-            <section className="sec">
-              <div className="sec-row">
-                <div><h2>{t.carnet}</h2><p className="sec-sub">{t.carnetSub}</p></div>
-                <button className="see-all" onClick={() => go('carnet')}>Voir tout <ArrowRight size={14} /></button>
-              </div>
-              <div className="bento-preview">
-                {photos.slice(0, 4).map((p, i) => (
-                  <article className={`bento-prev-card bento-prev-${i}`} key={p.id} onClick={() => go('carnet')}>
-                    {p.image_url
-                      ? <img src={p.image_url} alt={p.title} loading="lazy" />
-                      : <div className="bento-prev-placeholder"><Camera size={24} /></div>}
-                    <div className="bento-prev-overlay">
-                      {p.city && <span className="bento-prev-city"><MapPin size={10} /> {p.city}</span>}
-                      <h3>{p.title}</h3>
-                      <span className="bento-prev-author">{p.author || 'CELEC'}</span>
+                </div>
+                {mapSelectedCity && (
+                  <div className="map-city-entries">
+                    <h3><MapPin size={14} /> {mapSelectedCity}</h3>
+                    <div className="map-city-grid">
+                      {photos.filter(p => p.city === mapSelectedCity).map(p => (
+                        <article key={p.id} className="map-city-card" onClick={() => openCarnetDetail(p)}>
+                          {p.image_url
+                            ? <img src={p.image_url} alt={p.title} loading="lazy" />
+                            : <div className="map-city-placeholder"><Camera size={18} /></div>}
+                          <div className="map-city-overlay">
+                            <h4>{p.title}</h4>
+                            <span>{fmtDateShort(p.created_at)}</span>
+                          </div>
+                        </article>
+                      ))}
                     </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-
-            {/* TEAM */}
-            <section className="sec sec-alt">
-              <h2>{t.team}</h2>
-              <div className="team-row">
-                {teamMembers.map((m, i) => (
-                  <div className="team-card" key={i}>
-                    <div className="avatar"><UserRound size={32} /></div>
-                    <h3>{m.name}</h3>
-                    <span className="t-role">{m.role}</span>
-                    <p>{m.bio}</p>
+                    {photos.filter(p => p.city === mapSelectedCity).length === 0 && (
+                      <p className="map-city-empty">Aucune photo pour cette ville.</p>
+                    )}
                   </div>
-                ))}
-              </div>
-            </section>
-          </>
-        )}
+                )}
+              </section>
+            )}
 
+        </div>}
         {view === 'carnet' && (
           <section className="sec">
             <h2>{t.carnet}</h2>
@@ -1148,9 +1126,9 @@ function App() {
                 </button>
               )}
               {conciergeReturn && (
-                <a className="cm-concierge-back" href="/concierge">
+                <Link className="cm-concierge-back" to="/concierge">
                   <ArrowLeft size={14} /> Revenir à la conversation
-                </a>
+                </Link>
               )}
               <button className="modal-x" onClick={closeAllOverlays}><X size={18} /></button>
               {(carnetDetail.image_url || carnetDetail.photo_images?.[0]?.image_url) && (
@@ -1261,9 +1239,9 @@ function App() {
           <div className="overlay" onClick={closeAllOverlays}>
             <div className="carnet-modal" onClick={e => e.stopPropagation()}>
               {conciergeReturn && (
-                <a className="cm-concierge-back" href="/concierge">
+                <Link className="cm-concierge-back" to="/concierge">
                   <ArrowLeft size={14} /> Revenir à la conversation
-                </a>
+                </Link>
               )}
               <button className="modal-x" onClick={closeAllOverlays}><X size={18} /></button>
               {brandView.partner?.logo_url && (
@@ -1400,12 +1378,7 @@ function App() {
         <ClientSpace onClose={() => setClientSpaceOpen(false)} onLogout={() => { setUserEmail(null); setUserRole(null); }} />
       )}
 
-      {/* Floating contact button */}
-      {view !== 'admin' && (
-      <button className="fab-contact" onClick={() => { go('home'); setTimeout(() => document.getElementById('contact-box')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>
-        <Phone size={22} />
-      </button>
-      )}
+
     </div>
   );
 }
@@ -1424,43 +1397,57 @@ function Modal({ onClose, children }: { onClose: () => void; children: React.Rea
 function CallbackModal({ t, onClose }: { t: typeof fr; onClose: () => void }) {
   const [sent, setSent] = useState(false);
   const [phone, setPhone] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSend = async () => {
+    if (sending || DESIGN_PREVIEW) return;
+    setSending(true);
+    setError('');
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      if (supabaseUrl && anonKey) {
-        await fetch(`${supabaseUrl}/functions/v1/telegram-notify`, {
+      if (!supabaseUrl || !anonKey) throw new Error('Le rappel se demande depuis le site CELEC connecté.');
+      {
+        const response = await fetch(`${supabaseUrl}/functions/v1/telegram-notify`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${anonKey}`,
+            apikey: anonKey,
           },
           body: JSON.stringify({
             category: "callback",
             description: `Rappel demande - Tel: ${phone}`,
             source: "callback",
             callback_requested: true,
+            guest_phone: phone,
           }),
         });
+        const result = await response.json();
+        if (!response.ok || result.success !== true) throw new Error('La demande n’a pas été transmise. Vous pouvez réessayer.');
       }
-    } catch {
-      // silently fail
+      setSent(true);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'La demande n’a pas été transmise.');
+    } finally {
+      setSending(false);
     }
-    setSent(true);
   };
 
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <button className="modal-x" onClick={onClose}><X size={18} /></button>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Être rappelé par CELEC" onClick={e => e.stopPropagation()}>
+        <button className="modal-x" aria-label="Fermer" onClick={onClose}><X size={18} /></button>
         <Phone size={22} className="modal-top-icon" />
         <h2>{t.callbackTitle}</h2>
         <p className="modal-p">{t.callbackText}</p>
-        {sent ? <p className="confirm-txt">{t.callbackDone}</p> : (
+        {sent ? <p className="confirm-txt">Votre demande est transmise à CELEC. Nous vous recontacterons dès que possible.</p> : (
           <>
-            <input className="field" placeholder="+33 6 00 00 00 00" value={phone} onChange={e => setPhone(e.target.value)} />
-            <button className="btn-pink full" onClick={handleSend} disabled={!phone.trim()}>{t.callbackSend}</button>
+            <input className="field" type="tel" autoComplete="tel" aria-label="Votre téléphone" placeholder="+33 6 00 00 00 00" value={phone} onChange={e => setPhone(e.target.value)} />
+            <button className="btn-pink full" onClick={handleSend} disabled={phone.replace(/\D/g, '').length < 8 || sending || DESIGN_PREVIEW}>{sending ? 'Transmission…' : t.callbackSend}</button>
+            {DESIGN_PREVIEW && <p className="ce-preview-note" style={{ margin: '16px 0 0' }}>Aperçu : aucun rappel n’est envoyé depuis cette version.</p>}
+            {error && <p role="alert" className="cb-confirm-error">{error}</p>}
           </>
         )}
       </div>

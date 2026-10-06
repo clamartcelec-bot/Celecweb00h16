@@ -49,7 +49,7 @@ export function ConciergeCardStack({ cards, ended, detailHrefFor }: ConciergeCar
       </div>
 
       <div className="concierge-card-list" ref={listRef}>
-        <AnimatePresence mode="popLayout" initial={false}>
+        <AnimatePresence initial={false}>
           {cards.map((card, index) => (
             <CardChip
               key={card.id}

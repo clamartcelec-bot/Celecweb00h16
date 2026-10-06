@@ -1,4 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { DESIGN_PREVIEW, PREVIEW_PROJECTS } from '@/experience/preview';
+import { GUIDE_CONTEXT_EVENT, GUIDE_OPEN_EVENT, GUIDE_REVEAL_EVENT, type GuideContext } from '@/experience/events';
+import { LivingGuide } from '@/experience/LivingGuide';
+import { usePresentationTarget } from '@/experience/useGuidePlacement';
+import { supabase } from '@/lib/supabase';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -12,7 +20,6 @@ import {
   MapPin,
   Mic,
   MicOff,
-  LogOut,
   Paperclip,
   Phone,
   PhoneOff,
@@ -51,6 +58,8 @@ import {
 } from '../types';
 import { ConciergeCardStack } from './ConciergeCardStack';
 import '../concierge.css';
+import '@/experience/concierge-ui.css';
+import '@/experience/living-guide.css';
 
 const TOPICS: Array<{ label: string; category: RequestCategory }> = [
   { label: "J'ai une panne", category: 'depannage' },
@@ -110,7 +119,16 @@ function brandCardHref(name: string) {
   return `/partners?brand=${encodeURIComponent(name)}`;
 }
 
-export function ConciergePage() {
+export function ConciergePage({ embedded = false }: { embedded?: boolean }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const reducedMotion = useReducedMotion();
+  const [previewFlow, setPreviewFlow] = useState<'idle' | 'projects' | 'appointment'>('idle');
+  const [previewTitle, setPreviewTitle] = useState('Voici quelques projets du Carnet.');
+  const [engaged, setEngaged] = useState(false);
+  const [presentationDismissed, setPresentationDismissed] = useState(false);
+  const presentationTarget = usePresentationTarget(embedded, location.pathname);
+  const lastPresentationRef = useRef<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
 
   const {
@@ -133,6 +151,17 @@ export function ConciergePage() {
     requestResponse,
     sendUserText,
   } = useRealtimeSession(conversationId);
+
+  useEffect(() => {
+    if (status !== 'connected') return;
+    const receive = (event: Event) => {
+      const context = (event as CustomEvent<GuideContext>).detail;
+      if (context.prompt) sendUserText(context.prompt);
+      else injectSystemMessage(`CONTEXTE VISUEL : le visiteur consulte « ${context.title.slice(0, 150)} ». ${context.description?.slice(0, 450) ?? ''} Ceci est une information de navigation : ne prends pas la parole pour ce clic. Utilise ce contexte seulement si le visiteur t'interroge.`);
+    };
+    window.addEventListener(GUIDE_CONTEXT_EVENT, receive);
+    return () => window.removeEventListener(GUIDE_CONTEXT_EVENT, receive);
+  }, [status, injectSystemMessage, sendUserText]);
 
   const robotRef = useRef<ConciergeRobotHandle>(null);
   const [toolActivity, setToolActivity] = useState<ToolActivity | null>(null);
@@ -166,6 +195,7 @@ export function ConciergePage() {
   const hasSubmittedRef = useRef(false);
   const sentSnapshotRef = useRef('');
   const selectedTopicRef = useRef<string>();
+  const initialGuideContextRef = useRef<GuideContext | undefined>();
   const draftRef = useRef<ConciergeDraft>(EMPTY_CONCIERGE_DRAFT);
   const settingsRef = useRef<ConciergeSettings>(DEFAULT_CONCIERGE_SETTINGS);
   const knowledgeRef = useRef<ConciergeKnowledge>(EMPTY_KNOWLEDGE);
@@ -211,6 +241,23 @@ export function ConciergePage() {
     return () => { active = false; };
   }, []);
 
+  // The guide now exists before login; refresh its greeting context when the account changes.
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    let pending: number | undefined;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(event => {
+      if (!['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED'].includes(event)) return;
+      window.clearTimeout(pending);
+      pending = window.setTimeout(() => {
+        void loadConciergeContext().then(context => {
+          if (active) setClientContext({ ...(context ?? {}), knowledge: knowledgeRef.current });
+        }).catch(() => { /* The next visit can retry loading account context. */ });
+      }, 0);
+    });
+    return () => { active = false; window.clearTimeout(pending); subscription.unsubscribe(); };
+  }, []);
+
   const updateDraft = useCallback((patch: Partial<ConciergeDraft>) => {
     setDraft((current) => {
       const next = { ...current, ...patch };
@@ -234,6 +281,7 @@ export function ConciergePage() {
   }, []);
 
   const pushCards = useCallback((incoming: ConciergeCard[]) => {
+    if (incoming.length) setPresentationDismissed(false);
     const fresh = incoming.filter((card) => !shownCardIdsRef.current.has(card.id));
     if (!fresh.length) return;
 
@@ -366,6 +414,7 @@ export function ConciergePage() {
         title: entry.title,
         subtitle: [entry.city, entry.brands.slice(0, 2).join(' · ')].filter(Boolean).join(' — '),
         imageUrl: entry.image_url,
+        description: entry.description,
       })));
 
       sendFunctionResult(tool.callId, {
@@ -424,6 +473,7 @@ export function ConciergePage() {
     }
 
     if (tool.name === 'begin_appointment_flow') {
+      setPresentationDismissed(false);
       setAppointmentMode(true);
       if (booleanArg(args, 'callback_requested') === true) {
         updateDraft({ callbackRequested: true });
@@ -564,7 +614,9 @@ export function ConciergePage() {
         transcriptRef.current.map((message) => `${message.role === 'user' ? 'Client' : 'CELEC'} : ${message.text}`),
       ));
     } else {
-      injectSystemMessage(formatConciergeContext(clientContext, selectedTopicRef.current));
+      const invitation = initialGuideContextRef.current;
+      injectSystemMessage(formatConciergeContext(clientContext, selectedTopicRef.current) + (invitation?.prompt
+        ? `\nINVITATION CHOISIE PAR LE VISITEUR : ${invitation.prompt}\nCommence directement cette visite demandée et utilise les outils d'affichage pertinents. Ne redemande pas ce qu'il souhaite découvrir.` : ''));
     }
 
     requestResponse();
@@ -580,6 +632,8 @@ export function ConciergePage() {
   }, [injectSystemMessage]);
 
   const handleEnd = useCallback(() => {
+    setEngaged(false);
+    if (DESIGN_PREVIEW) { setPreviewFlow('idle'); return; }
     isResumingRef.current = false;
     stop();
     endConciergeSession(sessionIdRef.current);
@@ -592,8 +646,13 @@ export function ConciergePage() {
     if (status !== 'connected') hasInjectedWarningRef.current = false;
   }, [status]);
 
-  const handleStart = (topic?: { label: string; category: RequestCategory }) => {
-    selectedTopicRef.current = topic?.label;
+  const handleStart = useCallback((topic?: { label: string; category: RequestCategory }, guideContext?: GuideContext) => {
+    if (status === 'connected' || status === 'connecting' || status === 'requesting-mic') return;
+    setEngaged(true);
+    setPresentationDismissed(false);
+    initialGuideContextRef.current = guideContext;
+    if (DESIGN_PREVIEW) { setPreviewFlow('projects'); return; }
+    selectedTopicRef.current = topic?.label ?? new URLSearchParams(location.search).get('topic') ?? undefined;
     isResumingRef.current = false;
     hasSubmittedRef.current = false;
     setSubmissionState('idle');
@@ -615,11 +674,40 @@ export function ConciergePage() {
     draftRef.current = initialDraft;
     setDraft(initialDraft);
     start();
-  };
+  }, [clientContext, location.search, start, status]);
+
+  const activateGuide = useCallback((context?: GuideContext) => {
+    if (!DESIGN_PREVIEW && !settings.enabled && status !== 'connected') return;
+    setEngaged(true);
+    if (status === 'connecting' || status === 'requesting-mic') return;
+    if (DESIGN_PREVIEW) {
+      setPresentationDismissed(false);
+      const appointment = /rendez-vous|dépannage/i.test(context?.title ?? '');
+      setPreviewTitle(appointment ? 'Votre demande prend forme ici, au fil de notre échange.' : context?.description ? `Je vous présente : ${context.title}` : 'Laissez-moi vous montrer quelques projets du Carnet.');
+      setPreviewFlow(appointment ? 'appointment' : 'projects');
+      return;
+    }
+    if (status === 'connected') {
+      if (context?.prompt) sendUserText(context.prompt);
+      return;
+    }
+    if (status === 'ended' && !context) {
+      hasSubmittedRef.current = submissionState === 'sent';
+      isResumingRef.current = true;
+      start();
+      return;
+    }
+    handleStart(context ? { label: context.title, category: 'question' } : undefined, context);
+  }, [handleStart, sendUserText, settings.enabled, start, status, submissionState]);
+
+  useEffect(() => {
+    const open = (event: Event) => activateGuide((event as CustomEvent<GuideContext | undefined>).detail);
+    window.addEventListener(GUIDE_OPEN_EVENT, open);
+    return () => window.removeEventListener(GUIDE_OPEN_EVENT, open);
+  }, [activateGuide]);
 
   const handleGoBack = () => {
-    handleEnd();
-    window.location.href = '/';
+    navigate('/');
   };
 
   const handleResume = () => {
@@ -696,43 +784,62 @@ export function ConciergePage() {
         cards={cards}
         ended={status === 'ended'}
         detailHrefFor={(card) => card.kind === 'carnet'
-          ? carnetUrlForSession(sessionIdRef.current)
+          ? `${carnetUrlForSession(sessionIdRef.current)}${sessionIdRef.current ? '&' : '?'}entry=${encodeURIComponent(card.id)}`
           : brandCardHref(card.brandName ?? card.title)}
       />
     );
   }, [appointmentMode, cards, status]);
 
+  const hasPresentation = !presentationDismissed && (DESIGN_PREVIEW ? previewFlow !== 'idle' : Boolean(flow || showRequestPanel));
+  const presentationKey = DESIGN_PREVIEW ? `${previewFlow}:${previewTitle}` : `${cards[0]?.id ?? ''}:${showRequestPanel}`;
+  useEffect(() => {
+    if (!embedded || !hasPresentation || !presentationTarget || lastPresentationRef.current === presentationKey) return;
+    lastPresentationRef.current = presentationKey;
+    window.dispatchEvent(new Event(GUIDE_REVEAL_EVENT));
+    const frame = requestAnimationFrame(() => {
+      presentationTarget.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+      robotRef.current?.present(presentationTarget);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [embedded, hasPresentation, presentationKey, presentationTarget, reducedMotion]);
+
+  const requestPanel = <RequestPanel draft={draft} submissionState={submissionState} uploading={uploading}
+    uploadError={uploadError} onFilePick={handleFilePick} onRemoveAttachment={removeAttachment}
+    onSubmit={handleManualSubmit} onExit={handleExitAppointment} />;
+  const previewCards = <ConciergeCardStack cards={PREVIEW_PROJECTS.slice(0, 3).map(p => ({ id: p.id, kind: 'carnet', title: p.title, subtitle: p.city, imageUrl: p.image_url, description: p.description }))} ended={false} detailHrefFor={card => `/carnet?entry=${encodeURIComponent(card.id)}`} />;
+  const previewAppointment = <RequestPanel draft={{ ...EMPTY_CONCIERGE_DRAFT, firstName: 'Camille', summary: 'Un projet de rénovation électrique', location: 'Clamart' }} submissionState="idle" uploading={false} uploadError={null} onFilePick={() => {}} onRemoveAttachment={() => {}} onSubmit={() => {}} />;
+  const phrase = DESIGN_PREVIEW && engaged ? previewTitle : aiReply || (status === 'requesting-mic' ? 'Autorisez le micro pour commencer notre échange.'
+    : status === 'connecting' ? 'Un instant, je prépare notre échange…'
+    : status === 'error' ? error || 'La connexion n’a pas abouti. Cliquez sur moi pour réessayer.'
+    : status === 'ended' ? 'Merci de votre visite. Les projets et votre demande restent ici.'
+    : status === 'connected' ? 'Je vous écoute. Je peux vous montrer les projets ou préparer votre demande.'
+    : !settings.enabled ? 'Je suis momentanément indisponible. L’équipe reste joignable depuis « Nous contacter ».'
+    : 'Laissez-moi vous montrer ce qu’on fait chez CELEC.');
+
   return (
-    <div className="concierge-page">
+    <div className={`concierge-page concierge-page--editorial ${embedded ? 'concierge-page--embedded' : ''} ${hasPresentation ? 'concierge-page--presenting' : ''}`}>
       <header className="concierge-header">
         <button onClick={handleGoBack} className="concierge-back" aria-label="Retour">
           <ArrowLeft size={20} />
         </button>
-        <span className="concierge-logo">CELEC</span>
-        <div className="concierge-header-spacer" />
+        <Link to="/" className="concierge-logo">CELEC<span>.</span></Link>
+        <Link to="/decouvrir" className="concierge-explore-link">Continuer la visite <ArrowLeft size={14} /></Link>
       </header>
 
-      <div className="concierge-companion">
-        <ConciergeRobot ref={robotRef} status={status}
-          isUserSpeaking={isUserSpeaking} isAssistantSpeaking={isAssistantSpeaking}
-          isResponding={isResponding} toolActivity={toolActivity} />
-        <div className="concierge-companion-caption">
-          <span className="concierge-companion-name">Votre concierge CELEC</span>
-          <div className="concierge-status-row" role="status">
-            {status === 'connected' && <span className="concierge-live-dot" />}
-            <span>{status === 'connected'
-              ? isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…'
-                : isResponding || toolActivity?.phase === 'started' ? 'Je m’en occupe…' : 'À l’écoute'
-              : status === 'requesting-mic' || status === 'connecting' ? 'Je me prépare…'
-                : status === 'error' ? 'Connexion à réessayer' : status === 'ended' ? 'À bientôt !' : 'Bonjour !'}</span>
-            {status === 'connected' && <span className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}>
-              {timer.formatted}
-            </span>}
-          </div>
-        </div>
-      </div>
+      {!embedded && <div className="ce-full-guide-anchor" aria-hidden="true" />}
+      <LivingGuide embedded={embedded} page={location.pathname} presenting={hasPresentation} engaged={engaged}
+        status={status} phrase={phrase} muted={isMuted} speaking={isAssistantSpeaking} responding={isResponding}
+        duration={timer.formatted} preview={DESIGN_PREVIEW} available={knowledgeReady && settings.enabled}
+        text={composerText} onText={setComposerText} onSend={() => handleSendMessage(composerText)}
+        onActivate={() => activateGuide()} onEnd={handleEnd} onMute={toggleMute} onAcknowledge={() => robotRef.current?.acknowledge()}
+        robot={<ConciergeRobot ref={robotRef} status={status} isUserSpeaking={isUserSpeaking} isAssistantSpeaking={isAssistantSpeaking} isResponding={isResponding} toolActivity={toolActivity} />} />
 
-      <main className={`concierge-main ${inSession && (showRequestPanel || cards.length > 0) ? 'concierge-main--flow' : ''}`}>
+      {embedded && presentationTarget && hasPresentation && createPortal(<motion.section className="concierge-page--editorial ce-guide-presented" aria-label="Présentation du concierge" initial={{ opacity: 0, y: reducedMotion ? 0 : 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : 0.5 }}>
+        <div className="ce-guided-header"><div><span>Le concierge vous présente</span><h2>{DESIGN_PREVIEW && previewFlow === 'appointment' || !DESIGN_PREVIEW && showRequestPanel ? 'Votre demande prend forme.' : 'Suivons le fil des projets.'}</h2></div><button aria-label="Replier la présentation" onClick={() => { setPresentationDismissed(true); lastPresentationRef.current = null; requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.ce-guide-character')?.focus()); }}><X size={18} /></button></div>
+        {DESIGN_PREVIEW ? <><div className="ce-guided-choices"><button onClick={() => { setPreviewFlow('projects'); setPreviewTitle('Voici quelques projets pour commencer la visite.'); }}>Les projets</button><button onClick={() => { setPreviewFlow('appointment'); setPreviewTitle('La fiche se remplit pendant notre échange. Il manque votre téléphone.'); }}>Une demande de rendez-vous</button></div>{previewFlow === 'projects' ? previewCards : previewAppointment}</> : <>{showRequestPanel && requestPanel}{flow}</>}
+      </motion.section>, presentationTarget)}
+
+      <main hidden={embedded} className={`concierge-main ${inSession && (showRequestPanel || cards.length > 0) ? 'concierge-main--flow' : ''}`}>
         {status === 'idle' && !settings.enabled && (
           <div className="concierge-idle">
             <div className="concierge-greeting">
@@ -743,7 +850,16 @@ export function ConciergePage() {
           </div>
         )}
 
-        {status === 'idle' && settings.enabled && (
+        {DESIGN_PREVIEW ? (
+          !embedded && <div className="concierge-design-demo">
+            <div className="concierge-demo-intro"><span className="ce-eyebrow">Aperçu de la présentation</span><h1>Je vous <em>montre ?</em></h1><p>Voici comment les contenus apparaîtront pendant notre échange.<br />La voix et les envois réels se testent dans votre environnement Bolt.</p></div>
+            <div className="concierge-demo-actions"><button onClick={() => setPreviewFlow('projects')} className="concierge-quick-btn">Voir les cartes de projets</button><button onClick={() => setPreviewFlow('appointment')} className="concierge-quick-btn">Voir une demande de rendez-vous</button></div>
+            <AnimatePresence mode="wait"><motion.div key={previewFlow} initial={{ opacity: 0, y: reducedMotion ? 0 : 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              {previewFlow === 'projects' && previewCards}
+              {previewFlow === 'appointment' && previewAppointment}
+            </motion.div></AnimatePresence>
+          </div>
+        ) : status === 'idle' && settings.enabled && (
           <IdleView greeting={settings.greeting} knowledgeReady={knowledgeReady} onStart={handleStart} />
         )}
         {status === 'requesting-mic' && <ConnectingView label="Autorisation du micro..." />}
@@ -773,7 +889,7 @@ export function ConciergePage() {
                 onToggleMute={toggleMute}
                 onEnd={handleEnd}
               />
-              {showRequestPanel && (
+              {!embedded && showRequestPanel && (
                 <RequestPanel
                   draft={draft}
                   submissionState={submissionState}
@@ -786,7 +902,7 @@ export function ConciergePage() {
                 />
               )}
             </div>
-            {flow}
+            {!embedded && flow}
           </>
         )}
 
@@ -796,7 +912,7 @@ export function ConciergePage() {
           <>
             <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
               <EndedView draft={draft} onRestart={() => handleStart()} onResume={handleResume} onBack={handleGoBack} />
-              {showRequestPanel && (
+              {!embedded && showRequestPanel && (
                 <RequestPanel
                   draft={draft}
                   submissionState={submissionState}
@@ -808,7 +924,7 @@ export function ConciergePage() {
                 />
               )}
             </div>
-            {flow}
+            {!embedded && flow}
           </>
         )}
       </main>
@@ -828,12 +944,13 @@ function IdleView({
   return (
     <div className="concierge-idle">
       <div className="concierge-greeting">
-        <h1>Bonjour.</h1>
+        <span className="ce-eyebrow">Le concierge numérique de CELEC · disponible 24 h/24</span>
+        <h1>Je vous <em>montre ?</em></h1>
         <p>{greeting}</p>
       </div>
 
       <button onClick={() => onStart()} className="concierge-start-btn" disabled={!knowledgeReady}>
-        <Mic size={24} />
+        <Phone size={20} />
         {knowledgeReady ? 'Parler à CELEC' : 'Préparation du carnet…'}
       </button>
 
@@ -846,7 +963,7 @@ function IdleView({
       </div>
 
       <p className="concierge-disclosure">
-        Vous allez parler avec le concierge numérique de CELEC. Il s’appuie sur notre carnet d’interventions publié et sur nos partenaires pour vous répondre, et affiche à l’écran les éléments dont il parle.
+        Un échange vocal avec notre IA. Je vous présente les projets et les partenaires à l’écran, et je peux transmettre votre demande aux électriciens.
       </p>
     </div>
   );
@@ -1064,117 +1181,36 @@ function RequestPanel({
   const readyToSend = Boolean(name) && phoneOk && Boolean(objective);
   const canSend = readyToSend && !sending;
 
+  const missing = [!name && 'votre nom', !phoneOk && 'votre téléphone', !objective && 'l’objet de votre demande'].filter(Boolean);
+  const [expanded, setExpanded] = useState(false);
   return (
-    <aside className="concierge-request-panel" aria-live="polite">
-      <div className="concierge-panel-title">
-        <ClipboardList size={18} />
-        <span>Prise de rendez-vous</span>
-        {sent && !canSend && <span className="concierge-submit-status concierge-submit-status--sent">Transmise</span>}
-      </div>
-
-      <div className="concierge-field">
-        <span className="concierge-field-label">Nom</span>
-        <span className={`concierge-field-value ${name ? 'concierge-field-value--ok' : 'concierge-field-value--missing'}`}>
-          {name || 'À préciser'}
-        </span>
-      </div>
-
-      <div className="concierge-field">
-        <span className="concierge-field-label">Téléphone</span>
-        <span className={`concierge-field-value concierge-field-value--spaced ${phoneOk ? 'concierge-field-value--ok' : 'concierge-field-value--missing'}`}>
-          {phone || 'À préciser'}
-        </span>
-      </div>
-
-      <div className="concierge-field">
-        <span className="concierge-field-label">Adresse</span>
-        <span className={`concierge-field-value ${draft.location ? 'concierge-field-value--ok' : ''}`}>
-          {draft.location || 'Facultatif'}
-        </span>
-      </div>
-
-      {draft.category && (
-        <PanelLine icon={<ClipboardList size={15} />} label="Type" value={CATEGORY_LABELS[draft.category]} />
-      )}
-      {draft.siteType && <PanelLine icon={<MapPin size={15} />} label="Site" value={draft.siteType} />}
-      {draft.urgency && (
-        <PanelLine icon={<AlertTriangle size={15} />} label="Priorité" value={URGENCY_LABELS[draft.urgency]} />
-      )}
-      {draft.availability && (
-        <PanelLine icon={<Clock3 size={15} />} label="Disponibilités" value={draft.availability} />
-      )}
-
-      <div className="concierge-panel-objective">
-        <span className={`concierge-panel-objective-label ${objective ? 'concierge-panel-objective-label--ok' : 'concierge-panel-objective-label--missing'}`}>
-          Objet de l’appel
-        </span>
-        <p className={objective ? '' : 'concierge-panel-objective-empty'}>
-          {objective || 'À préciser pendant l’échange.'}
-        </p>
-      </div>
-
-      <div className="concierge-panel-files">
-        <label className="concierge-file-btn">
-          {uploading ? <Loader2 size={15} className="concierge-spin" /> : <Paperclip size={15} />}
-          Ajouter une photo ou une vidéo
-          <input
-            type="file"
-            accept="image/*,video/*"
-            onChange={onFilePick}
-            hidden
-          />
-        </label>
-
-        {uploadError && <p className="concierge-file-error">{uploadError}</p>}
-
-        {draft.attachments.length > 0 && (
-          <ul className="concierge-file-list">
-            {draft.attachments.map((url) => (
-              <li key={url}>
-                <Camera size={13} />
-                <span>{url.split('/').pop()}</span>
-                <button onClick={() => onRemoveAttachment(url)} aria-label="Retirer le fichier">
-                  <X size={13} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {draft.nextStep && (
-        <div className="concierge-panel-next">
-          <CheckCircle2 size={15} />
-          <span>{draft.nextStep}</span>
-        </div>
-      )}
-
-      <button
-        onClick={onSubmit}
-        disabled={!canSend}
-        className={`concierge-submit-btn ${readyToSend ? 'concierge-submit-btn--ready' : ''} ${sent && !readyToSend ? 'concierge-submit-btn--sent' : ''}`}
-      >
-        {sending && <Loader2 size={16} className="concierge-spin" />}
-        {sent && !sending && <CheckCircle2 size={16} />}
-        {sending ? 'Envoi…' : sent ? 'Renvoyer la demande' : 'Envoyer la demande'}
-      </button>
-
-      {onExit && (
-        <button onClick={onExit} className="concierge-exit-btn">
-          <LogOut size={14} />
-          Sortir de la prise de rendez-vous
+    <motion.aside layout className={`concierge-request-panel ${sent ? 'concierge-request-panel--sent' : ''}`} aria-live="polite">
+      <div className="concierge-request-tab">
+        <button onClick={() => setExpanded(value => !value)} className="concierge-request-summary" aria-expanded={expanded}>
+          {sent ? <CheckCircle2 size={19} /> : <ClipboardList size={19} />}
+          <span><strong>{sent ? 'Transmise aux techniciens CELEC' : 'Demande de rendez-vous'}</strong><small>{sent ? 'Nous vous recontacterons dès que possible.' : missing.length ? `Il manque ${missing.join(', ')}.` : 'Votre demande est prête à être transmise.'}</small></span>
+          <ChevronDown size={16} className={expanded ? 'cc-chevron--up' : ''} />
         </button>
-      )}
-
-      {!readyToSend && !sent && (
-        <p className="concierge-panel-hint">
-          Le nom, le téléphone et l’objet de l’appel sont nécessaires pour envoyer la demande.
-        </p>
-      )}
-      {submissionState === 'error' && (
-        <p className="concierge-file-error">L’envoi a échoué. Réessayez dans quelques instants.</p>
-      )}
-    </aside>
+        {!sent && <button onClick={onSubmit} disabled={!canSend} className={`concierge-submit-btn ${readyToSend ? 'concierge-submit-btn--ready' : ''}`}>
+          {sending ? <Loader2 size={15} className="concierge-spin" /> : <CheckCircle2 size={15} />}{sending ? 'Envoi…' : 'Valider'}
+        </button>}
+      </div>
+      {!sent && <div className="concierge-request-minimum"><span>{name || 'Votre nom'}</span><span className={phoneOk ? '' : 'is-missing'}>{phone || 'Téléphone à préciser'}</span><span>{objective || 'Votre besoin'}</span></div>}
+      <AnimatePresence initial={false}>{expanded && <motion.div className="concierge-request-details" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
+        <p className="concierge-panel-hint">La fiche se remplit pendant notre échange. Dites-moi ce que vous souhaitez corriger.</p>
+        {draft.location && <PanelLine icon={<MapPin size={15} />} label="Lieu" value={draft.location} />}
+        {draft.category && <PanelLine icon={<ClipboardList size={15} />} label="Besoin" value={CATEGORY_LABELS[draft.category]} />}
+        {draft.siteType && <PanelLine icon={<MapPin size={15} />} label="Site" value={draft.siteType} />}
+        {draft.urgency && <PanelLine icon={<AlertTriangle size={15} />} label="Priorité" value={URGENCY_LABELS[draft.urgency]} />}
+        {draft.availability && <PanelLine icon={<Clock3 size={15} />} label="Disponibilités" value={draft.availability} />}
+        {objective && <p className="concierge-request-object">{objective}</p>}
+        <div className="concierge-panel-files"><label className="concierge-file-btn">{uploading ? <Loader2 size={15} className="concierge-spin" /> : <Paperclip size={15} />} Ajouter une photo ou une vidéo<input type="file" accept="image/*,video/*" onChange={onFilePick} hidden disabled={sent || uploading || DESIGN_PREVIEW} /></label>
+          {draft.attachments.length > 0 && <ul className="concierge-file-list">{draft.attachments.map(url => <li key={url}><Camera size={13} /><span>{url.split('/').pop()}</span><button onClick={() => onRemoveAttachment(url)} aria-label="Retirer le fichier"><X size={13} /></button></li>)}</ul>}
+        </div>
+        {onExit && <button onClick={onExit} className="concierge-exit-btn">Revenir à la découverte</button>}
+      </motion.div>}</AnimatePresence>
+      {(uploadError || submissionState === 'error') && <p className="concierge-file-error">{uploadError || 'La transmission a échoué. Votre fiche est conservée : vous pouvez réessayer.'}</p>}
+    </motion.aside>
   );
 }
 
@@ -1224,4 +1260,3 @@ function EndedView({ draft, onRestart, onResume, onBack }: { draft: ConciergeDra
     </div>
   );
 }
-

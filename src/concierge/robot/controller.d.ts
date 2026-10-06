@@ -3,6 +3,7 @@ export interface RobotElement extends HTMLElement {
   setState(state: RobotState, options?: {duration?: number}): void;
   setPose(pose: Record<string, number | string>, options?: {duration?: number}): void;
   setAmplitude(value: number): void;
+  lookAtElement(target: Element | string): void;
   greet(): Promise<unknown>;
   nod(): Promise<unknown>;
   hands(): Promise<unknown>;

@@ -1,10 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
 
 // Full-page regression with real Web Audio, synthetic tracks, and no external calls.
-async function mockVoice(page: Page) {
+async function mockVoice(page: Page, projects: object[] = []) {
   await page.route('http://127.0.0.1:54321/**', route => {
     if (route.request().url().includes('/functions/v1/realtime-session')) {
       return route.fulfill({ status: 200, contentType: 'application/sdp', body: 'v=0\r\n' });
+    }
+    if (route.request().url().includes('/rest/v1/photos')) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projects) });
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
@@ -82,7 +85,7 @@ async function connect(page: Page) {
   await expect(page.getByRole('button', { name: 'Raccrocher' })).toBeVisible();
 }
 
-test('transparent top-left robot, pink cap, two brows, and responsive layout', async ({ page }) => {
+test('transparent companion, pink cap, two brows, and responsive layout', async ({ page }) => {
   await mockVoice(page);
   await page.goto('/concierge');
   const robot = page.locator('robot-majordome');
@@ -96,8 +99,8 @@ test('transparent top-left robot, pink cap, two brows, and responsive layout', a
   expect(await robot.evaluate(el => el.shadowRoot!.querySelectorAll('[data-part="brow-left"], [data-part="brow-right"]').length)).toBe(2);
   await expect(page.locator('.concierge-avatar')).toHaveCount(0);
   const bounds = await robot.boundingBox();
-  expect(bounds!.x).toBeLessThan(40);
-  expect(bounds!.y).toBeLessThan(100);
+  expect(bounds!.x).toBeLessThan(150);
+  expect(bounds!.y).toBeLessThan(300);
   for (const width of [320, 390, 768, 1440]) {
     await page.setViewportSize({ width, height: 850 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -207,4 +210,88 @@ test('invalid and unknown tools fail gracefully and old audio-delta events still
   await expect.poll(async () => (await pose(page)).pose.mouthOpen).toBeGreaterThan(0.3);
   await emit(page, 'response.audio.done');
   await expect.poll(async () => (await pose(page)).pose.mouthOpen).toBe(0);
+});
+
+
+test('voice session survives internal navigation and reading a page does not solicit speech', async ({ page }) => {
+  await connect(page);
+  const before = await page.evaluate(() => (window as unknown as {voiceTest: {sent: object[]}}).voiceTest.sent.length);
+  await page.getByRole('link', { name: 'Continuer la visite' }).click();
+  await expect(page).toHaveURL(/decouvrir/);
+  await expect(page.getByRole('link', { name: 'Revenir à la conversation avec le concierge' })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as {voiceTest: {localStopped: () => boolean}}).voiceTest.localStopped())).toBe(false);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('celec:guide-context', { detail: { title: 'Un projet consulté', description: 'Une maison.' } })));
+  const events = await page.evaluate(() => (window as unknown as {voiceTest: {sent: {type: string}[]}}).voiceTest.sent.slice());
+  expect(events.slice(before).some(event => event.type === 'response.create')).toBe(false);
+  await page.getByRole('button', { name: 'Une installation connectée' }).click();
+  await expect.poll(async () => page.evaluate(() => (window as unknown as {voiceTest: {sent: {type: string}[]}}).voiceTest.sent.slice().filter(event => event.type === 'response.create').length)).toBeGreaterThan(events.filter(event => event.type === 'response.create').length);
+  await page.getByRole('link', { name: 'Revenir à la conversation avec le concierge' }).click();
+  await expect(page.getByRole('button', { name: 'Raccrocher' })).toBeVisible();
+  await page.getByRole('button', { name: 'Raccrocher' }).click();
+  expect(await page.evaluate(() => (window as unknown as {voiceTest: {localStopped: () => boolean}}).voiceTest.localStopped())).toBe(true);
+});
+
+test('appointment tab is read-only and validation waits for required fields', async ({ page }) => {
+  await connect(page);
+  await emit(page, 'response.function_call_arguments.done', { name: 'begin_appointment_flow', call_id: 'appointment-ui', arguments: '{}' });
+  await expect(page.getByRole('button', { name: 'Valider', exact: true })).toBeDisabled();
+  await emit(page, 'response.function_call_arguments.done', { name: 'update_client_panel', call_id: 'client-ui', arguments: '{"first_name":"Camille","phone":"0612345678","summary":"Rénovation électrique"}' });
+  await expect(page.getByRole('button', { name: 'Valider', exact: true })).toBeEnabled();
+  await expect(page.locator('.concierge-request-panel input:not([type=file])')).toHaveCount(0);
+});
+
+const PROJECTS = [
+  { id: 'project-clamart', title: 'Une maison repensée', city: 'Clamart', lat: 48.8005, lng: 2.2634, description: 'Rénovation électrique et éclairage.', image_url: '/pink-van.webp', detected_brands: ['Legrand'], photo_images: [], published: true, author: 'CELEC', created_at: '2026-10-01' },
+  { id: 'project-meudon', title: 'Une installation connectée', city: 'Meudon', lat: 48.812, lng: 2.235, description: 'Un réseau et de la domotique.', image_url: '/pink-van.webp', detected_brands: ['UniFi'], photo_images: [], published: true, author: 'CELEC', created_at: '2026-10-01' },
+];
+
+test('the large homepage guide starts a call in place and keeps its identity while travelling', async ({ page }) => {
+  await mockVoice(page, PROJECTS);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/');
+  await expect(page.locator('robot-majordome')).toHaveCount(1);
+  await expect(page.locator('.ce-guide-free')).toHaveAttribute('data-placement', 'hero');
+  await expect.poll(async () => (await page.locator('robot-majordome').boundingBox())!.width).toBeGreaterThan(230);
+  await page.locator('robot-majordome').evaluate(el => Object.assign(window, { originalGuide: el }));
+  await page.getByRole('button', { name: 'Parler au concierge numérique CELEC', exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('button', { name: 'Raccrocher', exact: true })).toBeVisible();
+  await emit(page, 'response.audio_transcript.done', { transcript: 'Je peux vous montrer cette maison.' });
+  await expect(page.locator('.ce-guide-bubble')).toContainText('Je peux vous montrer cette maison.');
+  await page.locator('.hdr').getByRole('button', { name: 'Le Carnet', exact: true }).click();
+  await expect(page).toHaveURL(/\/carnet$/);
+  await expect(page.locator('.ce-guide-free')).toHaveAttribute('data-placement', 'docked');
+  expect(await page.locator('robot-majordome').evaluate(el => el === (window as unknown as { originalGuide: Element }).originalGuide)).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as {voiceTest: {localStopped: () => boolean}}).voiceTest.localStopped())).toBe(false);
+  await page.getByRole('button', { name: 'Raccrocher', exact: true }).click();
+});
+
+test('project map markers expose a preview and open the corresponding carnet sheet', async ({ page }) => {
+  await mockVoice(page, PROJECTS);
+  await page.goto('/');
+  const atlas = page.getByRole('region', { name: 'Carte interactive des projets' });
+  await atlas.getByRole('button', { name: 'Voir les projets à Clamart' }).focus();
+  await expect(atlas.locator('.ce-atlas-project')).toContainText('Une maison repensée');
+  await atlas.locator('.ce-atlas-project').click();
+  await expect(page.locator('.carnet-modal h2')).toContainText('Une maison repensée');
+  await expect(page).toHaveURL(/\/$/);
+});
+
+test('the concierge presents projects inside the homepage and can fold the presentation without ending the call', async ({ page }) => {
+  await mockVoice(page, PROJECTS);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Parler au concierge numérique CELEC', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Raccrocher', exact: true })).toBeVisible();
+  await emit(page, 'response.function_call_arguments.done', { name: 'show_carnet_entries', call_id: 'inline-projects', arguments: '{"entry_ids":["project-clamart"]}' });
+  const stage = page.getByRole('region', { name: 'Présentation du concierge' });
+  await expect(stage).toBeVisible();
+  await expect(stage).toContainText('Une maison repensée');
+  await expect(page.locator('.ce-guide-free')).toHaveAttribute('data-placement', 'presenting');
+  await expect(page).toHaveURL(/\/$/);
+  await page.getByRole('button', { name: 'Replier la présentation' }).click();
+  await expect(stage).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Raccrocher', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as {voiceTest: {localStopped: () => boolean}}).voiceTest.localStopped())).toBe(false);
+  await page.getByRole('button', { name: 'Raccrocher', exact: true }).click();
 });
