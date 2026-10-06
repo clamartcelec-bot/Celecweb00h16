@@ -1,0 +1,342 @@
+{
+  "objectif": "Mettre en test le connecteur Android Le Carnet CELEC sur la base Bolt actuelle avec le code livré, sans modifier les billets existants.",
+  "changements": [
+    {
+      "table": "storage.buckets",
+      "action": "insert",
+      "cible": {
+        "id": "carnet-ingest"
+      },
+      "valeurs": {
+        "id": "carnet-ingest",
+        "name": "carnet-ingest",
+        "public": false,
+        "file_size_limit": 26214400,
+        "allowed_mime_types": [
+          "image/jpeg",
+          "image/png",
+          "audio/mp4",
+          "video/mp4"
+        ]
+      },
+      "precondition": "Le bucket id=carnet-ingest est absent. Si présent, vérifier puis appliquer la configuration idempotente de la migration ; ne pas créer un second bucket.",
+      "raison": "Recevoir les originaux mobiles privés sans changer les limites du bucket public photos."
+    }
+  ],
+  "schema": [
+    {
+      "table": "carnet_ingest_batches",
+      "action": "create_table",
+      "colonnes": [
+        {
+          "nom": "batch_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "user_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "source",
+          "type": "text",
+          "valeur_par_defaut": "mobile_app",
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "api_version",
+          "type": "integer",
+          "valeur_par_defaut": 1,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "manifest",
+          "type": "jsonb",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "manifest_hash",
+          "type": "text",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "expected_bytes",
+          "type": "bigint",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "status",
+          "type": "text",
+          "valeur_par_defaut": "uploading",
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "stage",
+          "type": "text",
+          "valeur_par_defaut": "verify",
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "attempt_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "lease_until",
+          "type": "timestamptz",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "attempt_times",
+          "type": "timestamptz[]",
+          "valeur_par_defaut": [],
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "settings_snapshot",
+          "type": "jsonb",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "draft_result",
+          "type": "jsonb",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "voice_transcript",
+          "type": "text",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "error_code",
+          "type": "text",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "retryable",
+          "type": "boolean",
+          "valeur_par_defaut": true,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "carnet_entry_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "original_entry_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "cover_media_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "publication_attempt",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "publication_started",
+          "type": "timestamptz",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "publication_paths",
+          "type": "jsonb",
+          "valeur_par_defaut": [],
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "cleanup_paths",
+          "type": "jsonb",
+          "valeur_par_defaut": [],
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "created_at",
+          "type": "timestamptz",
+          "valeur_par_defaut": "now()",
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "updated_at",
+          "type": "timestamptz",
+          "valeur_par_defaut": "now()",
+          "peut_etre_vide": false
+        }
+      ],
+      "definition_de_reference": "supabase/migrations/20261006120757_20261006100000_mobile_carnet_ingestion.sql",
+      "raison": "Journal et médias privés utilisés par le code mobile et le serveur livré."
+    },
+    {
+      "table": "carnet_ingest_media",
+      "action": "create_table",
+      "colonnes": [
+        {
+          "nom": "item_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "batch_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "type",
+          "type": "text",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "origin",
+          "type": "text",
+          "valeur_par_defaut": "capture",
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "position",
+          "type": "integer",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "mime_type",
+          "type": "text",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "byte_size",
+          "type": "bigint",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "sha256",
+          "type": "text",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "duration_ms",
+          "type": "integer",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "generation",
+          "type": "integer",
+          "valeur_par_defaut": 1,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "storage_path",
+          "type": "text",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "verified",
+          "type": "boolean",
+          "valeur_par_defaut": false,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "needs_reupload",
+          "type": "boolean",
+          "valeur_par_defaut": false,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "transcript",
+          "type": "text",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "transcription_done",
+          "type": "boolean",
+          "valeur_par_defaut": false,
+          "peut_etre_vide": false
+        },
+        {
+          "nom": "photo_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "photo_image_id",
+          "type": "uuid",
+          "valeur_par_defaut": null,
+          "peut_etre_vide": true
+        },
+        {
+          "nom": "created_at",
+          "type": "timestamptz",
+          "valeur_par_defaut": "now()",
+          "peut_etre_vide": false
+        }
+      ],
+      "definition_de_reference": "supabase/migrations/20261006120757_20261006100000_mobile_carnet_ingestion.sql",
+      "raison": "Journal et médias privés utilisés par le code mobile et le serveur livré."
+    }
+  ],
+  "inconnues": [
+    "Vérifier que les versions canoniques conservées correspondent au registre des migrations déjà appliquées dans Bolt ; ne pas rejouer les copies.",
+    "Vérifier que le runtime Bolt permet les fonctions mobile-carnet et carnet-media, les RPC réservées au serveur, les uploads signés et la copie entre les buckets carnet-ingest et photos.",
+    "Vérifier l'URL publique et la clé anon/publishable utilisées par le site et configurer les mêmes valeurs dans Android, sans transmettre aucun secret serveur.",
+    "Les appels Storage, les gestes caméra/microphone et la recette de bout en bout restent à valider dans le projet et le téléphone de test."
+  ],
+  "notes": "Le schéma ci-dessus décrit la livraison déjà appliquée selon Bolt. Aucune nouvelle migration ni réexécution demandée. Main Bolt synchronisée a994f3827390cb88d3d92eb0876e9ae96d3d1648 ; doublons de fichiers retirés sans changer leur contenu. Suivre docs/NETWORK_RECIPE.md pour le déploiement et les tests HTTP. Aucun accès à la base réelle par le préparateur. Comptes, données existantes, bucket public et droits admin conservés. GPS, carte, techniciens et vectorisation différés.",
+  "livraison": {
+    "repository": "clamartcelec-bot/Celecweb00h16",
+    "branche": "feature/mobile-carnet-connector",
+    "base_verifiee": "a994f3827390cb88d3d92eb0876e9ae96d3d1648",
+    "ordre_migrations": [
+      {
+        "chemin": "supabase/migrations/20261006120757_20261006100000_mobile_carnet_ingestion.sql",
+        "sha256": "3617a23f3b19f21d9205936600c8cfc0e009520db20f5f1ea21f534e9db47133"
+      },
+      {
+        "chemin": "supabase/migrations/20261006120815_20261006100100_mobile_carnet_media_admin.sql",
+        "sha256": "96ccbe31ab47250ffcfaa22f4a3d08ee80661cd75081c2dd2f610b789505162b"
+      }
+    ],
+    "fonctions_a_deployer": [
+      "mobile-carnet",
+      "carnet-media",
+      "telegram-carnet",
+      "description-rewrite"
+    ],
+    "dossier_de_deploiement": "docs/BOLT_DEPLOYMENT.md",
+    "contrat_api": "docs/mobile-carnet-api.md",
+    "page_modifiee": "src/components/AdminDashboard.tsx",
+    "recette_reseau": "docs/NETWORK_RECIPE.md",
+    "recette_android": "docs/ANDROID_TEST_GUIDE.md"
+  },
+  "etat": "Migrations, fonctions et recette en base appliquées selon le retour Bolt du 6 octobre. Prochaine étape : recette HTTP réelle et Android ; ne pas recréer le schéma."
+}
