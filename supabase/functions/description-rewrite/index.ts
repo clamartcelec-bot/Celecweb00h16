@@ -35,6 +35,11 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    const { data: profile, error: profileError } = await supabase.from("profiles").select("role").eq("id", userData.user.id).maybeSingle();
+    if (profileError || profile?.role !== "admin") {
+      return new Response(JSON.stringify({ error: "Forbidden" }), { status: profileError ? 503 : 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const contentType = req.headers.get("Content-Type") || "";
     const isAudio = contentType.startsWith("audio/") || contentType.includes("multipart/form-data");
 

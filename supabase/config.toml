@@ -1,3 +1,9 @@
+[functions.mobile-carnet]
+verify_jwt = true
+
+[functions.carnet-media]
+verify_jwt = true
+
 [functions.telegram-notify]
 verify_jwt = false
 
