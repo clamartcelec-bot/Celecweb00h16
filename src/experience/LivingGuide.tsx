@@ -19,10 +19,13 @@ export function LivingGuide({ robot, page, embedded, presenting, engaged, status
   const [writing, setWriting] = useState(false);
   const connected = status === 'connected';
   const preparing = status === 'connecting' || status === 'requesting-mic';
+  const bubbleWidth = window.innerWidth <= 760 ? (engaged || connected || preparing ? 185 : 164) : window.innerWidth <= 1100 ? 228 : 250;
+  const desiredBubbleLeft = window.innerWidth <= 760 ? 5 : placement.width - bubbleWidth + 28 - placement.progress * 30;
+  const bubbleLeft = Math.max(8 - placement.x, Math.min(desiredBubbleLeft, window.innerWidth - bubbleWidth - 8 - placement.x));
   return <motion.aside className={`ce-guide-free ce-guide-free--${placement.mode} ${engaged || connected || preparing ? 'ce-guide-free--engaged' : ''}`} aria-label="Concierge numérique CELEC" data-placement={placement.mode}
     initial={false} animate={{ x: placement.x, y: placement.y, width: placement.width, opacity: placement.ready && !page.startsWith('/admin') ? 1 : 0 }}
-    transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 125, damping: 25, mass: 0.7 }}>
-    {embedded && <div className="ce-guide-bubble">
+    transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 85, damping: 25, mass: 1 }}>
+    {embedded && <div className="ce-guide-bubble" style={placement.mode === 'hero' ? { opacity: engaged || connected || preparing ? 1 : 1 - smoothFade(placement.progress), left: bubbleLeft, right: 'auto', width: bubbleWidth } : undefined}>
       <span className="ce-guide-bubble-label">Le concierge numérique · IA</span>
       <p aria-live="polite">{phrase}</p>
       <span className="ce-guide-state">{preparing ? <><Loader2 size={11} className="concierge-spin" /> Connexion en cours</> : connected ? <><span className="ce-guide-live-dot" /> {muted ? 'Micro coupé' : speaking ? 'Je vous réponds' : responding ? 'Je prépare la suite' : 'Je vous écoute'} · {duration}</> : preview && engaged ? 'Démonstration visuelle · sans appel réel' : <><Phone size={11} /> Cliquez sur moi pour échanger</>}</span>
@@ -46,3 +49,5 @@ export function LivingGuide({ robot, page, embedded, presenting, engaged, status
     </AnimatePresence>
   </motion.aside>;
 }
+
+function smoothFade(progress: number) { return progress * progress * (3 - 2 * progress); }
