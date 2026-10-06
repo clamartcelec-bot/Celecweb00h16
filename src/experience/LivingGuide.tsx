@@ -19,7 +19,7 @@ export function LivingGuide({ robot, page, embedded, presenting, engaged, status
   const positioned = useRef(false);
   const viewportRevision = useRef(placement.viewportRevision);
   const animateTravel = positioned.current && placement.ready && viewportRevision.current === placement.viewportRevision;
-  useLayoutEffect(() => { if (placement.ready) positioned.current = true; viewportRevision.current = placement.viewportRevision; }, [placement.ready]);
+  useLayoutEffect(() => { if (placement.ready) positioned.current = true; viewportRevision.current = placement.viewportRevision; }, [placement.ready, placement.viewportRevision]);
   const [writing, setWriting] = useState(false);
   const connected = status === 'connected';
   const preparing = status === 'connecting' || status === 'requesting-mic';
