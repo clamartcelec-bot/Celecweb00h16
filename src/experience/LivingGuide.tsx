@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ArrowUpRight, Loader2, MicOff, PencilLine, Phone, PhoneOff, Send } from 'lucide-react';
@@ -16,6 +16,9 @@ interface Props {
 export function LivingGuide({ robot, page, embedded, presenting, engaged, status, phrase, muted, speaking, responding, duration, preview, available, text, onText, onSend, onActivate, onEnd, onMute, onAcknowledge }: Props) {
   const placement = useGuidePlacement(embedded, presenting, page);
   const reduced = useReducedMotion();
+  const positioned = useRef(false);
+  const animateTravel = positioned.current && placement.ready;
+  useLayoutEffect(() => { if (placement.ready) positioned.current = true; }, [placement.ready]);
   const [writing, setWriting] = useState(false);
   const connected = status === 'connected';
   const preparing = status === 'connecting' || status === 'requesting-mic';
@@ -24,7 +27,7 @@ export function LivingGuide({ robot, page, embedded, presenting, engaged, status
   const bubbleLeft = Math.max(8 - placement.x, Math.min(desiredBubbleLeft, window.innerWidth - bubbleWidth - 8 - placement.x));
   return <motion.aside className={`ce-guide-free ce-guide-free--${placement.mode} ${engaged || connected || preparing ? 'ce-guide-free--engaged' : ''}`} aria-label="Concierge numérique CELEC" data-placement={placement.mode}
     initial={false} animate={{ x: placement.x, y: placement.y, width: placement.width, opacity: placement.ready && !page.startsWith('/admin') ? 1 : 0 }}
-    transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 85, damping: 25, mass: 1 }}>
+    transition={reduced || !animateTravel ? { duration: 0 } : { type: 'spring', stiffness: 85, damping: 25, mass: 1 }}>
     {embedded && <div className="ce-guide-bubble" style={placement.mode === 'hero' ? { opacity: engaged || connected || preparing ? 1 : 1 - smoothFade(placement.progress), left: bubbleLeft, right: 'auto', width: bubbleWidth } : undefined}>
       <span className="ce-guide-bubble-label">Le concierge numérique · IA</span>
       <p aria-live="polite">{phrase}</p>
