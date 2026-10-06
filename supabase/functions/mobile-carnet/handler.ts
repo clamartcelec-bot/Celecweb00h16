@@ -106,7 +106,7 @@ export async function handleMobile(req: Request): Promise<Response> {
     if (!b.draft_result) {
       if (await yieldIfNeeded("analyze")) return response(await getBatch(db, actor, batchId));
       const images = [];
-      for (const m of media.filter(x => x.type === "image")) {
+      for (const m of media.filter(x => x.type === "image").slice(0,6)) {
         const { data, error } = await db.storage.from(BUCKET).createSignedUrl(m.storage_path, 120);
         if (error || !data) throw new ApiError("storage_unavailable", 503, true);
         images.push(data.signedUrl);
