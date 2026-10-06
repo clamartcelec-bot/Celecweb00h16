@@ -27,6 +27,13 @@ persistante. La conversation reste montée pendant les déplacements dans le sit
 les invitations explicites au guide déclenchent une réponse pendant un appel déjà actif.
 Le premier appel requiert toujours un clic et l’autorisation du microphone.
 
+Le grand robot libre prend place dans la composition de l’accueil, puis rejoint le coin
+au défilement. Son clic lance l’échange sur la page courante. La bulle affiche les paroles
+et les commandes de l’appel ; les outils présentent les projets et la fiche de demande
+directement dans la page. Une présentation peut se replier sans terminer la conversation.
+La carte de l’accueil propose des repères photographiques accessibles au clavier et au
+toucher : un aperçu apparaît, puis ouvre le projet correspondant.
+
 La fiche de rendez-vous reste en lecture seule, se complète par la conversation et propose
 une seule validation. Après l’envoi réussi elle se compacte avec un message de reprise humaine.
 Les cartes s’ouvrent dans le site, sans nouvel onglet ni interruption de l’appel.

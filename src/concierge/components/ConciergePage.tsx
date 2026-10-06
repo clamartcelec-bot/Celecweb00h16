@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { DESIGN_PREVIEW, PREVIEW_PROJECTS } from '@/experience/preview';
-import { GUIDE_CONTEXT_EVENT, type GuideContext } from '@/experience/events';
+import { GUIDE_CONTEXT_EVENT, GUIDE_OPEN_EVENT, GUIDE_REVEAL_EVENT, type GuideContext } from '@/experience/events';
+import { LivingGuide } from '@/experience/LivingGuide';
+import { usePresentationTarget } from '@/experience/useGuidePlacement';
+import { supabase } from '@/lib/supabase';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -55,6 +59,7 @@ import {
 import { ConciergeCardStack } from './ConciergeCardStack';
 import '../concierge.css';
 import '@/experience/concierge-ui.css';
+import '@/experience/living-guide.css';
 
 const TOPICS: Array<{ label: string; category: RequestCategory }> = [
   { label: "J'ai une panne", category: 'depannage' },
@@ -114,11 +119,16 @@ function brandCardHref(name: string) {
   return `/partners?brand=${encodeURIComponent(name)}`;
 }
 
-export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
+export function ConciergePage({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const reducedMotion = useReducedMotion();
   const [previewFlow, setPreviewFlow] = useState<'idle' | 'projects' | 'appointment'>('idle');
+  const [previewTitle, setPreviewTitle] = useState('Voici quelques projets du Carnet.');
+  const [engaged, setEngaged] = useState(false);
+  const [presentationDismissed, setPresentationDismissed] = useState(false);
+  const presentationTarget = usePresentationTarget(embedded, location.pathname);
+  const lastPresentationRef = useRef<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
 
   const {
@@ -185,6 +195,7 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
   const hasSubmittedRef = useRef(false);
   const sentSnapshotRef = useRef('');
   const selectedTopicRef = useRef<string>();
+  const initialGuideContextRef = useRef<GuideContext | undefined>();
   const draftRef = useRef<ConciergeDraft>(EMPTY_CONCIERGE_DRAFT);
   const settingsRef = useRef<ConciergeSettings>(DEFAULT_CONCIERGE_SETTINGS);
   const knowledgeRef = useRef<ConciergeKnowledge>(EMPTY_KNOWLEDGE);
@@ -230,6 +241,23 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
     return () => { active = false; };
   }, []);
 
+  // The guide now exists before login; refresh its greeting context when the account changes.
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    let pending: number | undefined;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(event => {
+      if (!['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED'].includes(event)) return;
+      window.clearTimeout(pending);
+      pending = window.setTimeout(() => {
+        void loadConciergeContext().then(context => {
+          if (active) setClientContext({ ...(context ?? {}), knowledge: knowledgeRef.current });
+        }).catch(() => { /* The next visit can retry loading account context. */ });
+      }, 0);
+    });
+    return () => { active = false; window.clearTimeout(pending); subscription.unsubscribe(); };
+  }, []);
+
   const updateDraft = useCallback((patch: Partial<ConciergeDraft>) => {
     setDraft((current) => {
       const next = { ...current, ...patch };
@@ -253,6 +281,7 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
   }, []);
 
   const pushCards = useCallback((incoming: ConciergeCard[]) => {
+    if (incoming.length) setPresentationDismissed(false);
     const fresh = incoming.filter((card) => !shownCardIdsRef.current.has(card.id));
     if (!fresh.length) return;
 
@@ -444,6 +473,7 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
     }
 
     if (tool.name === 'begin_appointment_flow') {
+      setPresentationDismissed(false);
       setAppointmentMode(true);
       if (booleanArg(args, 'callback_requested') === true) {
         updateDraft({ callbackRequested: true });
@@ -584,7 +614,9 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
         transcriptRef.current.map((message) => `${message.role === 'user' ? 'Client' : 'CELEC'} : ${message.text}`),
       ));
     } else {
-      injectSystemMessage(formatConciergeContext(clientContext, selectedTopicRef.current));
+      const invitation = initialGuideContextRef.current;
+      injectSystemMessage(formatConciergeContext(clientContext, selectedTopicRef.current) + (invitation?.prompt
+        ? `\nINVITATION CHOISIE PAR LE VISITEUR : ${invitation.prompt}\nCommence directement cette visite demandée et utilise les outils d'affichage pertinents. Ne redemande pas ce qu'il souhaite découvrir.` : ''));
     }
 
     requestResponse();
@@ -600,6 +632,8 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
   }, [injectSystemMessage]);
 
   const handleEnd = useCallback(() => {
+    setEngaged(false);
+    if (DESIGN_PREVIEW) { setPreviewFlow('idle'); return; }
     isResumingRef.current = false;
     stop();
     endConciergeSession(sessionIdRef.current);
@@ -612,7 +646,11 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
     if (status !== 'connected') hasInjectedWarningRef.current = false;
   }, [status]);
 
-  const handleStart = (topic?: { label: string; category: RequestCategory }) => {
+  const handleStart = useCallback((topic?: { label: string; category: RequestCategory }, guideContext?: GuideContext) => {
+    if (status === 'connected' || status === 'connecting' || status === 'requesting-mic') return;
+    setEngaged(true);
+    setPresentationDismissed(false);
+    initialGuideContextRef.current = guideContext;
     if (DESIGN_PREVIEW) { setPreviewFlow('projects'); return; }
     selectedTopicRef.current = topic?.label ?? new URLSearchParams(location.search).get('topic') ?? undefined;
     isResumingRef.current = false;
@@ -636,7 +674,37 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
     draftRef.current = initialDraft;
     setDraft(initialDraft);
     start();
-  };
+  }, [clientContext, location.search, start, status]);
+
+  const activateGuide = useCallback((context?: GuideContext) => {
+    if (!DESIGN_PREVIEW && !settings.enabled && status !== 'connected') return;
+    setEngaged(true);
+    if (status === 'connecting' || status === 'requesting-mic') return;
+    if (DESIGN_PREVIEW) {
+      setPresentationDismissed(false);
+      const appointment = /rendez-vous|dépannage/i.test(context?.title ?? '');
+      setPreviewTitle(appointment ? 'Votre demande prend forme ici, au fil de notre échange.' : context?.description ? `Je vous présente : ${context.title}` : 'Laissez-moi vous montrer quelques projets du Carnet.');
+      setPreviewFlow(appointment ? 'appointment' : 'projects');
+      return;
+    }
+    if (status === 'connected') {
+      if (context?.prompt) sendUserText(context.prompt);
+      return;
+    }
+    if (status === 'ended' && !context) {
+      hasSubmittedRef.current = submissionState === 'sent';
+      isResumingRef.current = true;
+      start();
+      return;
+    }
+    handleStart(context ? { label: context.title, category: 'question' } : undefined, context);
+  }, [handleStart, sendUserText, settings.enabled, start, status, submissionState]);
+
+  useEffect(() => {
+    const open = (event: Event) => activateGuide((event as CustomEvent<GuideContext | undefined>).detail);
+    window.addEventListener(GUIDE_OPEN_EVENT, open);
+    return () => window.removeEventListener(GUIDE_OPEN_EVENT, open);
+  }, [activateGuide]);
 
   const handleGoBack = () => {
     navigate('/');
@@ -722,8 +790,34 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
     );
   }, [appointmentMode, cards, status]);
 
+  const hasPresentation = !presentationDismissed && (DESIGN_PREVIEW ? previewFlow !== 'idle' : Boolean(flow || showRequestPanel));
+  const presentationKey = DESIGN_PREVIEW ? `${previewFlow}:${previewTitle}` : `${cards[0]?.id ?? ''}:${showRequestPanel}`;
+  useEffect(() => {
+    if (!embedded || !hasPresentation || !presentationTarget || lastPresentationRef.current === presentationKey) return;
+    lastPresentationRef.current = presentationKey;
+    window.dispatchEvent(new Event(GUIDE_REVEAL_EVENT));
+    const frame = requestAnimationFrame(() => {
+      presentationTarget.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+      robotRef.current?.present(presentationTarget);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [embedded, hasPresentation, presentationKey, presentationTarget, reducedMotion]);
+
+  const requestPanel = <RequestPanel draft={draft} submissionState={submissionState} uploading={uploading}
+    uploadError={uploadError} onFilePick={handleFilePick} onRemoveAttachment={removeAttachment}
+    onSubmit={handleManualSubmit} onExit={handleExitAppointment} />;
+  const previewCards = <ConciergeCardStack cards={PREVIEW_PROJECTS.slice(0, 3).map(p => ({ id: p.id, kind: 'carnet', title: p.title, subtitle: p.city, imageUrl: p.image_url, description: p.description }))} ended={false} detailHrefFor={card => `/carnet?entry=${encodeURIComponent(card.id)}`} />;
+  const previewAppointment = <RequestPanel draft={{ ...EMPTY_CONCIERGE_DRAFT, firstName: 'Camille', summary: 'Un projet de rénovation électrique', location: 'Clamart' }} submissionState="idle" uploading={false} uploadError={null} onFilePick={() => {}} onRemoveAttachment={() => {}} onSubmit={() => {}} />;
+  const phrase = DESIGN_PREVIEW && engaged ? previewTitle : aiReply || (status === 'requesting-mic' ? 'Autorisez le micro pour commencer notre échange.'
+    : status === 'connecting' ? 'Un instant, je prépare notre échange…'
+    : status === 'error' ? error || 'La connexion n’a pas abouti. Cliquez sur moi pour réessayer.'
+    : status === 'ended' ? 'Merci de votre visite. Les projets et votre demande restent ici.'
+    : status === 'connected' ? 'Je vous écoute. Je peux vous montrer les projets ou préparer votre demande.'
+    : !settings.enabled ? 'Je suis momentanément indisponible. L’équipe reste joignable depuis « Nous contacter ».'
+    : 'Laissez-moi vous montrer ce qu’on fait chez CELEC.');
+
   return (
-    <div className={`concierge-page concierge-page--editorial ${minimized ? 'concierge-page--minimized' : ''} ${cards.length > 0 || previewFlow === 'projects' ? 'concierge-page--presenting' : ''}`}>
+    <div className={`concierge-page concierge-page--editorial ${embedded ? 'concierge-page--embedded' : ''} ${hasPresentation ? 'concierge-page--presenting' : ''}`}>
       <header className="concierge-header">
         <button onClick={handleGoBack} className="concierge-back" aria-label="Retour">
           <ArrowLeft size={20} />
@@ -732,28 +826,20 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
         <Link to="/decouvrir" className="concierge-explore-link">Continuer la visite <ArrowLeft size={14} /></Link>
       </header>
 
-      <motion.div layout={!reducedMotion} layoutId="celec-companion" transition={{ type: 'spring', stiffness: 140, damping: 24 }} className="concierge-companion">
-        <ConciergeRobot ref={robotRef} status={status}
-          isUserSpeaking={isUserSpeaking} isAssistantSpeaking={isAssistantSpeaking}
-          isResponding={isResponding} toolActivity={toolActivity} />
-        <div className="concierge-companion-caption">
-          <span className="concierge-companion-name">Le concierge numérique</span>
-          <div className="concierge-status-row" role="status">
-            {status === 'connected' && <span className="concierge-live-dot" />}
-            <span>{status === 'connected'
-              ? isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…'
-                : isResponding || toolActivity?.phase === 'started' ? 'Je m’en occupe…' : 'À l’écoute'
-              : status === 'requesting-mic' || status === 'connecting' ? 'Je me prépare…'
-                : status === 'error' ? 'Connexion à réessayer' : status === 'ended' ? 'À bientôt !' : 'Bonjour !'}</span>
-            {status === 'connected' && <span className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}>
-              {timer.formatted}
-            </span>}
-          </div>
-        </div>
-        {minimized && <Link to="/concierge" className="concierge-return" aria-label="Revenir à la conversation avec le concierge"><span className="sr-only">Revenir à la conversation</span><Phone size={16} /></Link>}
-      </motion.div>
+      {!embedded && <div className="ce-full-guide-anchor" aria-hidden="true" />}
+      <LivingGuide embedded={embedded} page={location.pathname} presenting={hasPresentation} engaged={engaged}
+        status={status} phrase={phrase} muted={isMuted} speaking={isAssistantSpeaking} responding={isResponding}
+        duration={timer.formatted} preview={DESIGN_PREVIEW} available={knowledgeReady && settings.enabled}
+        text={composerText} onText={setComposerText} onSend={() => handleSendMessage(composerText)}
+        onActivate={() => activateGuide()} onEnd={handleEnd} onMute={toggleMute} onAcknowledge={() => robotRef.current?.acknowledge()}
+        robot={<ConciergeRobot ref={robotRef} status={status} isUserSpeaking={isUserSpeaking} isAssistantSpeaking={isAssistantSpeaking} isResponding={isResponding} toolActivity={toolActivity} />} />
 
-      <main className={`concierge-main ${inSession && (showRequestPanel || cards.length > 0) ? 'concierge-main--flow' : ''}`}>
+      {embedded && presentationTarget && hasPresentation && createPortal(<motion.section className="concierge-page--editorial ce-guide-presented" aria-label="Présentation du concierge" initial={{ opacity: 0, y: reducedMotion ? 0 : 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : 0.5 }}>
+        <div className="ce-guided-header"><div><span>Le concierge vous présente</span><h2>{DESIGN_PREVIEW && previewFlow === 'appointment' || !DESIGN_PREVIEW && showRequestPanel ? 'Votre demande prend forme.' : 'Suivons le fil des projets.'}</h2></div><button aria-label="Replier la présentation" onClick={() => { setPresentationDismissed(true); lastPresentationRef.current = null; requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.ce-guide-character')?.focus()); }}><X size={18} /></button></div>
+        {DESIGN_PREVIEW ? <><div className="ce-guided-choices"><button onClick={() => { setPreviewFlow('projects'); setPreviewTitle('Voici quelques projets pour commencer la visite.'); }}>Les projets</button><button onClick={() => { setPreviewFlow('appointment'); setPreviewTitle('La fiche se remplit pendant notre échange. Il manque votre téléphone.'); }}>Une demande de rendez-vous</button></div>{previewFlow === 'projects' ? previewCards : previewAppointment}</> : <>{showRequestPanel && requestPanel}{flow}</>}
+      </motion.section>, presentationTarget)}
+
+      <main hidden={embedded} className={`concierge-main ${inSession && (showRequestPanel || cards.length > 0) ? 'concierge-main--flow' : ''}`}>
         {status === 'idle' && !settings.enabled && (
           <div className="concierge-idle">
             <div className="concierge-greeting">
@@ -765,12 +851,12 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
         )}
 
         {DESIGN_PREVIEW ? (
-          <div className="concierge-design-demo">
+          !embedded && <div className="concierge-design-demo">
             <div className="concierge-demo-intro"><span className="ce-eyebrow">Aperçu de la présentation</span><h1>Je vous <em>montre ?</em></h1><p>Voici comment les contenus apparaîtront pendant notre échange.<br />La voix et les envois réels se testent dans votre environnement Bolt.</p></div>
             <div className="concierge-demo-actions"><button onClick={() => setPreviewFlow('projects')} className="concierge-quick-btn">Voir les cartes de projets</button><button onClick={() => setPreviewFlow('appointment')} className="concierge-quick-btn">Voir une demande de rendez-vous</button></div>
             <AnimatePresence mode="wait"><motion.div key={previewFlow} initial={{ opacity: 0, y: reducedMotion ? 0 : 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              {previewFlow === 'projects' && <ConciergeCardStack cards={PREVIEW_PROJECTS.slice(0,3).map(p => ({ id: p.id, kind: 'carnet', title: p.title, subtitle: p.city, imageUrl: p.image_url, description: p.description }))} ended={false} detailHrefFor={card => `/carnet?entry=${encodeURIComponent(card.id)}`} />}
-              {previewFlow === 'appointment' && <RequestPanel draft={{ ...EMPTY_CONCIERGE_DRAFT, firstName: 'Camille', summary: 'Un projet de rénovation électrique', location: 'Clamart' }} submissionState="idle" uploading={false} uploadError={null} onFilePick={() => {}} onRemoveAttachment={() => {}} onSubmit={() => {}} />}
+              {previewFlow === 'projects' && previewCards}
+              {previewFlow === 'appointment' && previewAppointment}
             </motion.div></AnimatePresence>
           </div>
         ) : status === 'idle' && settings.enabled && (
@@ -803,7 +889,7 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
                 onToggleMute={toggleMute}
                 onEnd={handleEnd}
               />
-              {showRequestPanel && (
+              {!embedded && showRequestPanel && (
                 <RequestPanel
                   draft={draft}
                   submissionState={submissionState}
@@ -816,7 +902,7 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
                 />
               )}
             </div>
-            {flow}
+            {!embedded && flow}
           </>
         )}
 
@@ -826,7 +912,7 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
           <>
             <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
               <EndedView draft={draft} onRestart={() => handleStart()} onResume={handleResume} onBack={handleGoBack} />
-              {showRequestPanel && (
+              {!embedded && showRequestPanel && (
                 <RequestPanel
                   draft={draft}
                   submissionState={submissionState}
@@ -838,7 +924,7 @@ export function ConciergePage({ minimized = false }: { minimized?: boolean }) {
                 />
               )}
             </div>
-            {flow}
+            {!embedded && flow}
           </>
         )}
       </main>

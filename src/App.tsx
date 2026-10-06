@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { HomeExperience, SiteGuide } from '@/experience/HomeExperience';
+import { HomeExperience } from '@/experience/HomeExperience';
 import { DiscoveryPage } from '@/experience/DiscoveryPage';
-import { presentToGuide } from '@/experience/events';
+import { GUIDE_REVEAL_EVENT, presentToGuide } from '@/experience/events';
 import { DESIGN_PREVIEW, PREVIEW_PROJECTS, PREVIEW_PARTNERS } from '@/experience/preview';
 import {
   ArrowRight,
@@ -387,7 +387,7 @@ function InterventionMap({ cityGroups, theme, onCityClick, selectedCity }: { cit
 }
 
 /* ─── App ─── */
-function App({ companionOpen = false }: { companionOpen?: boolean }) {
+function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const [lang, setLang] = useState<Lang>('fr');
@@ -435,6 +435,11 @@ function App({ companionOpen = false }: { companionOpen?: boolean }) {
   const [clientSpaceOpen, setClientSpaceOpen] = useState(false);
   const t = copy[lang];
   useEffect(() => {
+    const reveal = () => { setCarnetDetail(null); setBrandView(null); setMapExpanded(false); };
+    window.addEventListener(GUIDE_REVEAL_EVENT, reveal);
+    return () => window.removeEventListener(GUIDE_REVEAL_EVENT, reveal);
+  }, []);
+  useEffect(() => {
     if (!mapExpanded) return;
     const previous = document.activeElement;
     const timer = window.setTimeout(() => document.querySelector<HTMLButtonElement>('.ce-map-overlay .map-close')?.focus(), 0);
@@ -449,6 +454,20 @@ function App({ companionOpen = false }: { companionOpen?: boolean }) {
     if (routes[location.pathname]) setView(routes[location.pathname]);
     setMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        document.querySelector<HTMLButtonElement>(window.innerWidth <= 768 ? '.burger' : '.ce-nav-menu-trigger')?.focus();
+      }
+    };
+    const outside = (event: MouseEvent) => { if (event.target instanceof Element && !event.target.closest('.hdr')) setMenuOpen(false); };
+    window.addEventListener('keydown', dismiss);
+    window.addEventListener('mousedown', outside);
+    return () => { window.removeEventListener('keydown', dismiss); window.removeEventListener('mousedown', outside); };
+  }, [menuOpen]);
 
   useEffect(() => {
     if (DESIGN_PREVIEW) setCityGroups(PREVIEW_PROJECTS.map(p => ({ city: p.city, count: 1, lat: p.lat, lng: p.lng })));
@@ -783,11 +802,17 @@ function App({ companionOpen = false }: { companionOpen?: boolean }) {
       {view !== 'admin' && (
       <header className="hdr">
         <button className="logo" onClick={() => go('home')}>CELEC<span className="logo-dot">.</span></button>
-        <nav className={`nav ${menuOpen ? 'open' : ''}`}>
-          <Link to="/decouvrir" onClick={() => presentToGuide({ title: 'Notre savoir-faire', prompt: 'Le visiteur souhaite découvrir notre savoir-faire.' })}>Notre savoir-faire</Link>
+        <nav aria-label="Navigation principale" className={`nav ${menuOpen ? 'open' : ''}`}>
           <button onClick={() => go('carnet')}>{t.carnet}</button>
           <button onClick={() => go('partners')}>{t.partners}</button>
-          <button onClick={() => go('contact')}>Nous contacter</button>
+          <div className="ce-nav-menu">
+            <button className="ce-nav-menu-trigger" aria-expanded={menuOpen} aria-controls="ce-nav-more" onClick={() => setMenuOpen(value => !value)}>Menu <ChevronDown size={13} /></button>
+            {menuOpen && <div id="ce-nav-more" className="ce-nav-more">
+              <Link to="/decouvrir" onClick={() => { setMenuOpen(false); presentToGuide({ title: 'Notre savoir-faire', prompt: 'Le visiteur souhaite découvrir notre savoir-faire.' }); }}>Notre savoir-faire</Link>
+              <button onClick={() => go('contact')}>Nous contacter</button>
+              <button onClick={() => go('blocktech')}>BlockTech</button>
+            </div>}
+          </div>
         </nav>
         <div className="hdr-right">
           <button className="guest-btn" onClick={() => userEmail ? setClientSpaceOpen(true) : setLoginOpen(true)}>
@@ -849,16 +874,16 @@ function App({ companionOpen = false }: { companionOpen?: boolean }) {
       )}
 
       <main>
+        {view !== 'home' && <div id="ce-live-presentation" className="ce-live-presentation" />}
         {view === 'home' && (
           <>
-            <HomeExperience projects={photos} partners={partners} companionOpen={companionOpen}
-              map={<InterventionMap cityGroups={cityGroups} theme={theme} />}
+            <HomeExperience projects={photos} partners={partners}
               onProject={p => { const full = photos.find(photo => photo.id === p.id); if (full) openCarnetDetail(full); }}
-              onCarnet={() => go('carnet')} onPartner={p => openBrand(p.name, partners.find(partner => partner.id === p.id) ?? null)}
-              onCallback={() => setCallbackOpen(true)} onMap={() => setMapExpanded(true)} />
+              onCarnet={() => go('carnet')} onPartners={() => go('partners')} onPartner={p => openBrand(p.name, partners.find(partner => partner.id === p.id) ?? null)}
+              onCallback={() => setCallbackOpen(true)} onMap={city => { setMapSelectedCity(city ?? null); setMapExpanded(true); }} />
           </>
         )}
-        {view === 'discovery' && <DiscoveryPage projects={photos} companionOpen={companionOpen} onProject={p => { const full = photos.find(photo => photo.id === p.id); if (full) openCarnetDetail(full); }} />}
+        {view === 'discovery' && <DiscoveryPage projects={photos} onProject={p => { const full = photos.find(photo => photo.id === p.id); if (full) openCarnetDetail(full); }} />}
         {view === 'contact' && <>
           <section className="ce-section ce-contact-heading"><span className="ce-eyebrow">Le relais humain</span><h1>Gardons <em>le fil.</em></h1><p>Décrivez votre besoin ou demandez à être rappelé par l’équipe.</p><button className="ce-button ce-button--dark" onClick={() => setCallbackOpen(true)}><Phone size={16} /> Être rappelé par l’équipe</button></section>
             {/* CONTACT BOX */}
@@ -1353,7 +1378,6 @@ function App({ companionOpen = false }: { companionOpen?: boolean }) {
         <ClientSpace onClose={() => setClientSpaceOpen(false)} onLogout={() => { setUserEmail(null); setUserRole(null); }} />
       )}
 
-      {!companionOpen && !['home', 'discovery', 'admin', 'admin-login'].includes(view) && <SiteGuide />}
 
     </div>
   );
