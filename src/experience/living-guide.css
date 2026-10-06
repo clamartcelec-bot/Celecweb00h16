@@ -66,3 +66,10 @@
 @media (prefers-reduced-motion: reduce) {
   .ce-guide-free * { transition-duration: 0s !important; animation: none !important; }
 }
+
+/* Short or narrow first screens: the guide remains beside the visible header. */
+.ce-guide-free--compact .ce-guide-bubble { top: 0; bottom: auto; padding: 13px 15px; opacity: 0; visibility: hidden; transition: opacity .2s,visibility .2s; max-height: min(230px,calc(100dvh - 180px)); overflow-y: auto; }
+.ce-guide-free--compact:hover .ce-guide-bubble,.ce-guide-free--compact:focus-within .ce-guide-bubble,.ce-guide-free--compact.ce-guide-free--engaged .ce-guide-bubble { opacity: 1; visibility: visible; }
+.ce-guide-free--compact .ce-guide-bubble p { font-size: 16px; }
+.ce-guide-free--compact .ce-guide-bubble::after { display: none; }
+
