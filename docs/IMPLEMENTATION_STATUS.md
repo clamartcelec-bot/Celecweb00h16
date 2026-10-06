@@ -19,10 +19,12 @@ PGlite est un Postgres embarqué local avec un schéma minimal issu du dépôt :
 
 Code capture, vocal verrouillable, journal SQLite et fichiers privés, Auth/SecureStore, lots par compte/projet, transmission signée, reprise par UUID, reçu strict et purge différée. Caméra/microphone uniquement en permissions demandées. SDK Expo 57, Android généré par prebuild, profil EAS preview prévu pour APK.
 
-Vérifications réussies : TypeScript, ESLint, cinq tests du protocole Android/reprise/purge, export Android/Hermes via Metro. Compilation native et état du paquet : voir le README de l'archive de livraison. Les gestes, prises de son/vidéo, stockage natif et interruptions restent à essayer sur le téléphone cible.
+Vérifications réussies : TypeScript, ESLint, cinq tests du protocole Android/reprise/purge, export Android/Hermes via Metro. APK locale autonome produite : `Le-Carnet-CELEC-0.1.0-test-arm64.apk`, 54 626 775 octets, `fr.celec.carnet`, version 0.1.0, minSdk 24 / targetSdk 36, ARM64. Signature APK v2 valide ; bundle Hermes embarqué et présence du dernier contrôle d'intégrité du journal vérifiés. Empreinte SHA-256 : `ca3b436ac52ed757fae8d4386cd74f11d84b5ffc0da1aabdc7dcc50a531a9208`. Signée pour le test avec le certificat de développement ; configuration publique du projet à renseigner avant connexion réelle. Les gestes, prises de son/vidéo, stockage natif et interruptions restent à essayer sur le téléphone cible.
 
 ## Mise en test réelle
 
 L'agent Bolt doit vérifier le schéma, appliquer les deux migrations livrées, déployer les fonctions avec _shared et le frontend de test, configurer les valeurs publiques Android, puis effectuer `BOLT_DEPLOYMENT.md`. Aucun test de bout en bout sur Bolt, aucune publication du site de production et aucune validation matérielle ne sont annoncés comme réalisés ici. Les fonctions et le frontend doivent être livrés ensemble avant d'activer le connecteur auprès des testeurs.
 
 Les fonctions Storage ne partagent pas la transaction Postgres : nettoyer/reprendre `cleanup_paths` si nécessaire et vérifier les caches lors d'une dépublication. L'application ne résiste pas à une désinstallation/effacement des données Android et ne garantit pas une prise encore en cours lors d'un arrêt brutal. La vidéo n'est pas décodée ni analysée par le serveur.
+
+Le dépôt GitHub Android distinct `clamartcelec-bot/CelecCarnetApp` n'est pas accessible via la connexion actuelle (404). Sources livrées séparément dans `CelecCarnetApp-0.1.0-sources.zip`, prêtes à importer dans ce dépôt ; le connecteur serveur et les pages sont versionnés dans cette PR.
