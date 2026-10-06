@@ -1,3 +1,4 @@
+import { mobileMedia, uploadMobileAdminImage, type MobilePreview } from "../lib/mobileCarnetMedia";
 import { useState, useEffect, useRef } from 'react';
 import {
   X, ShieldCheck, Users, Mail, Phone, Calendar, ChevronDown, ChevronUp,
@@ -61,11 +62,13 @@ interface PhotoRow {
   ai_summary?: string | null;
   source?: string | null;
   entry_type?: string | null;
+  mobile_media?: MobilePreview["media"];
 }
 
 interface PhotoImage {
   id: string;
   photo_id: string;
+  mobile_media_id?: string;
   image_url: string;
   caption: string;
   position: number;
@@ -178,7 +181,13 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    void loadData();
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void loadData(); }, 240000);
+    const refresh = () => { if (document.visibilityState === 'visible') void loadData(); };
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+  }, []);
 
   const loadData = async () => {
     if (!supabase) return;
@@ -194,10 +203,23 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
     ]);
     if (pRes.error) { setError(pRes.error.message); setLoading(false); return; }
     const allImages: PhotoImage[] = piRes.data ?? [];
-    const photosWithImages = (phRes.data ?? []).map((p: PhotoRow) => ({
-      ...p,
-      images: allImages.filter(i => i.photo_id === p.id),
+    const photosWithImages: PhotoRow[] = (phRes.data ?? []).map((p: PhotoRow) => ({
+      ...p, images: allImages.filter(i => i.photo_id === p.id),
     }));
+    for (let offset = 0; offset < photosWithImages.length; offset += 4) {
+      const enriched = await Promise.all(photosWithImages.slice(offset, offset + 4).map(async (p: PhotoRow) => {
+        if (p.source !== 'mobile_app') return p;
+        try {
+          const preview = await mobileMedia<MobilePreview>({ action: 'preview', entry_id: p.id });
+          return { ...p, image_url: preview.images.find(i => i.is_cover)?.url || '',
+            images: (p.images || []).map(img => { const item = preview.images.find(i => i.photo_image_id === img.id); return item ? { ...img, image_url: item.url, mobile_media_id: item.item_id } : img; }),
+            voice_transcript: preview.voice_transcript, mobile_media: preview.media,
+            raw_data: { ...p.raw_data, mobile_media: preview.media, ai_analysis: preview.diagnostics },
+          };
+        } catch { setError('Certains aperçus privés sont indisponibles. Réessayez de charger le Carnet.'); return p; }
+      }));
+      photosWithImages.splice(offset, enriched.length, ...enriched);
+    }
     setProfiles(pRes.data ?? []);
     setRequests(rRes.data ?? []);
     setInvoices(iRes.data ?? []);
@@ -1010,7 +1032,15 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
 
   const removeExistingImage = async (imgId: string) => {
     if (!supabase) return;
-    await supabase.from('photo_images').delete().eq('id', imgId);
+    const post = photos.find(p => p.id === editId);
+    if (post?.source === 'mobile_app') {
+      const image = post.images?.find(i => i.id === imgId);
+      if (!image?.mobile_media_id) { setErr('Réessayez de charger les médias privés.'); return; }
+      try { await mobileMedia({ action: 'remove_image', entry_id: post.id, item_id: image.mobile_media_id }); }
+      catch (e) { setErr(e instanceof Error ? e.message : 'Suppression impossible'); return; }
+    } else {
+      await supabase.from('photo_images').delete().eq('id', imgId);
+    }
     setExistingImages(prev => prev.filter(i => i.id !== imgId));
   };
 
@@ -1036,10 +1066,17 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
         if (error) throw new Error(error.message);
         entryId = data.id;
       } else if (entryId) {
-        const { error } = await supabase.from('photos').update(row).eq('id', entryId);
+        const mobile = photos.find(p => p.id === entryId)?.source === 'mobile_app';
+        const { published: _published, ...editable } = row;
+        const { error } = await supabase.from('photos').update(mobile ? editable : row).eq('id', entryId);
         if (error) throw new Error(error.message);
       }
-      if (files.length > 0 && entryId) {
+      const mobilePost = entryId && photos.find(p => p.id === entryId)?.source === 'mobile_app';
+      if (mobilePost && entryId) {
+        if (!form.published) await mobileMedia({ action: 'unpublish', entry_id: entryId });
+        for (const file of files) await uploadMobileAdminImage(entryId, file);
+        if (form.published) await mobileMedia({ action: 'publish', entry_id: entryId });
+      } else if (files.length > 0 && entryId) {
         const startPos = existingImages.length;
         for (let i = 0; i < files.length; i++) {
           const url = await uploadImage(files[i]);
@@ -1059,6 +1096,11 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
   const handlePublish = async (id: string) => {
     if (!supabase) return;
     setPublishing(id);
+    if (photos.find(p => p.id === id)?.source === 'mobile_app') {
+      try { await mobileMedia({ action: 'publish', entry_id: id }); await onRefresh(); }
+      catch (e) { setErr(e instanceof Error ? e.message : 'Publication impossible'); }
+      setPublishing(null); return;
+    }
     const { error } = await supabase.from('photos').update({ published: true }).eq('id', id);
     if (error) { setErr(error.message); setPublishing(null); return; }
     await onRefresh(); setPublishing(null);
@@ -1067,6 +1109,11 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
   const handleUnpublish = async (id: string) => {
     if (!supabase) return;
     setPublishing(id);
+    if (photos.find(p => p.id === id)?.source === 'mobile_app') {
+      try { await mobileMedia({ action: 'unpublish', entry_id: id }); await onRefresh(); }
+      catch (e) { setErr(e instanceof Error ? e.message : 'Dépublication impossible'); }
+      setPublishing(null); return;
+    }
     const { error } = await supabase.from('photos').update({ published: false }).eq('id', id);
     if (error) { setErr(error.message); setPublishing(null); return; }
     await onRefresh(); setPublishing(null);
@@ -1075,14 +1122,23 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
   const handleDelete = async (id: string) => {
     if (!supabase) return;
     setDeleting(id);
+    if (photos.find(p => p.id === id)?.source === 'mobile_app') {
+      try { await mobileMedia({ action: 'delete_entry', entry_id: id }); await onRefresh(); }
+      catch (e) { setErr(e instanceof Error ? e.message : 'Suppression impossible'); }
+      setDeleting(null); return;
+    }
     const { error } = await supabase.from('photos').delete().eq('id', id);
     if (error) { setErr(error.message); setDeleting(null); return; }
     await onRefresh(); setDeleting(null);
   };
 
-  const setCover = async (photoId: string, imageUrl: string) => {
+  const setCover = async (photoId: string, imageUrl: string, mediaId?: string) => {
     if (!supabase) return;
-    await supabase.from('photos').update({ image_url: imageUrl }).eq('id', photoId);
+    if (photos.find(p => p.id === photoId)?.source === 'mobile_app') {
+      if (!mediaId) { setErr('Réessayez de charger les médias privés.'); return; }
+      try { await mobileMedia({ action: 'set_cover', entry_id: photoId, item_id: mediaId }); }
+      catch (e) { setErr(e instanceof Error ? e.message : 'Couverture impossible'); return; }
+    } else { await supabase.from('photos').update({ image_url: imageUrl }).eq('id', photoId); }
     await onRefresh();
   };
 
@@ -1303,7 +1359,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                     <div className="crn-draft-info">
                       <div className="crn-draft-top-row">
                         <h4>{p.title}</h4>
-                        {p.source === 'telegram' && <span className="crn-badge-source">Telegram</span>}
+                        {p.source === 'telegram' && <span className="crn-badge-source">Telegram</span>}{p.source === 'mobile_app' && <span className="crn-badge-source">Mobile</span>}
                       {p.entry_type && <span className="crn-badge-type">{ENTRY_TYPES.find(t => t.value === p.entry_type)?.label || p.entry_type}</span>}
                         {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                       </div>
@@ -1358,7 +1414,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                                 <button
                                   className={`crn-cover-toggle ${isCover ? 'is-cover' : ''}`}
                                   title={isCover ? 'Photo de couverture' : 'Utiliser comme photo de couverture'}
-                                  onClick={(e) => { e.stopPropagation(); if (!isCover) setCover(p.id, img.image_url); }}
+                                  onClick={(e) => { e.stopPropagation(); if (!isCover) setCover(p.id, img.image_url, img.mobile_media_id); }}
                                 >
                                   <ImageIcon size={11} />
                                 </button>
@@ -1429,7 +1485,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
             <div key={p.id} className="crn-card">
               {thumbUrl ? <div className="crn-img-wrap"><img src={thumbUrl} alt={p.title} className="crn-img" />{imgCount > 1 && <span className="crn-img-count">{imgCount} photos</span>}</div> : <div className="crn-img crn-img-empty"><ImageIcon size={24} /></div>}
               <div className="crn-card-body">
-                <div className="crn-card-top"><h4>{p.title}</h4>{p.source === 'telegram' && <span className="crn-badge-source crn-badge-sm">TG</span>}{p.entry_type && <span className="crn-badge-type">{ENTRY_TYPES.find(t => t.value === p.entry_type)?.label || p.entry_type}</span>}</div>
+                <div className="crn-card-top"><h4>{p.title}</h4>{p.source === 'telegram' && <span className="crn-badge-source crn-badge-sm">TG</span>}{p.source === 'mobile_app' && <span className="crn-badge-source crn-badge-sm">Mobile</span>}{p.entry_type && <span className="crn-badge-type">{ENTRY_TYPES.find(t => t.value === p.entry_type)?.label || p.entry_type}</span>}</div>
                 <div className="crn-card-meta">{p.author && <span>{p.author}</span>}{p.city && p.lat !== 0 && <span><MapPin size={10} /> {p.city}</span>}{(!p.city || p.lat === 0) && <button className="crn-gps-missing" title="Absence de donnees geographiques — cliquer pour ajouter la ville" onClick={() => openEdit(p)}><MapPin size={10} /> GPS ?</button>}<span>{fmtDate(p.created_at)}</span></div>
                 {brands.length > 0 && <div className="crn-card-brands">{brands.join(', ')}</div>}
                 {p.description && <p className="crn-card-desc">{p.description}</p>}

@@ -15,3 +15,9 @@ verify_jwt = false
 
 [functions.concierge-presence]
 verify_jwt = false
+
+[functions.mobile-carnet]
+verify_jwt = false
+
+[functions.carnet-media]
+verify_jwt = false
