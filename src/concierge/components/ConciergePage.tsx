@@ -148,6 +148,7 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
   const factsRef = useRef<CompanyFact[]>([]);
   const [composerText, setComposerText] = useState('');
   const [appointmentMode, setAppointmentMode] = useState(false);
+  const [requestStarted, setRequestStarted] = useState(false);
   const [submissionState, setSubmissionState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -208,6 +209,7 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
   }, []);
 
   const updateDraft = useCallback((patch: Partial<ConciergeDraft>) => {
+    if (patch.phone || patch.summary || patch.lastName || patch.location || patch.callbackRequested) setRequestStarted(true);
     setDraft((current) => {
       const next = { ...current, ...patch };
 
@@ -648,6 +650,7 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
     setComposerText('');
     setUploadError(null);
     setAppointmentMode(false);
+    setRequestStarted(false);
     setPinnedFacts([]);
     setLens(null);
     shownCardIdsRef.current.clear();
@@ -798,7 +801,7 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
   };
 
   const inSession = status === 'connected' || status === 'ended';
-  const showRequestPanel = appointmentMode || submissionState !== 'idle';
+  const showRequestPanel = appointmentMode || requestStarted || submissionState !== 'idle';
   const shownFacts = useMemo(
     () => pinnedFacts.map((key) => facts.find((fact) => fact.key === key)).filter((fact): fact is CompanyFact => Boolean(fact)),
     [facts, pinnedFacts],
@@ -870,11 +873,26 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
             {phase === 'error' && <ErrorView error={error} onRetry={() => handleStart()} />}
 
             {phase === 'session' && (
-              <div className={`concierge-stage ${showRequestPanel ? 'concierge-stage--panel' : ''}`}>
+              <div className="concierge-stage">
                 <div className="concierge-stage-main">
+                  <AnimatePresence initial={false}>
+                    {showRequestPanel && (
+                      <RequestPanel
+                        key="callback"
+                        draft={draft}
+                        submissionState={submissionState}
+                        uploading={uploading}
+                        uploadError={uploadError}
+                        onFilePick={handleFilePick}
+                        onRemoveAttachment={removeAttachment}
+                        onSubmit={handleManualSubmit}
+                        onExit={status === 'connected' && appointmentMode ? handleExitAppointment : undefined}
+                      />
+                    )}
+                  </AnimatePresence>
                   <ConciergeFacts facts={shownFacts} latestKey={pinnedFacts[pinnedFacts.length - 1] ?? null} onOpen={openFact} />
-                  {!appointmentMode && cards.length > 0 && <ConciergeCardStack cards={cards} onOpen={openCard} />}
-                  {!appointmentMode && !cards.length && !shownFacts.length && (
+                  {cards.length > 0 && <ConciergeCardStack cards={cards} onOpen={openCard} />}
+                  {!showRequestPanel && !cards.length && !shownFacts.length && (
                     <p className="concierge-stage-hint">
                       {status === 'ended'
                         ? 'L’appel est terminé. Vous pouvez le reprendre en haut à droite.'
@@ -882,18 +900,6 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
                     </p>
                   )}
                 </div>
-                {showRequestPanel && (
-                  <RequestPanel
-                    draft={draft}
-                    submissionState={submissionState}
-                    uploading={uploading}
-                    uploadError={uploadError}
-                    onFilePick={handleFilePick}
-                    onRemoveAttachment={removeAttachment}
-                    onSubmit={handleManualSubmit}
-                    onExit={status === 'connected' ? handleExitAppointment : undefined}
-                  />
-                )}
               </div>
             )}
           </motion.div>

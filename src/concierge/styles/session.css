@@ -7,7 +7,7 @@
   padding: 12px 18px 0; pointer-events: none;
 }
 .ct-bar > * { pointer-events: auto; }
-.ct-companion { display: flex; align-items: flex-start; gap: 4px; min-width: 0; }
+.ct-companion { display: flex; align-items: flex-start; gap: 4px; min-width: 0; min-height: 128px; }
 robot-majordome.concierge-robot {
   display: block; width: 132px; flex: 0 0 132px;
   background: transparent; border: 0; box-shadow: none;
@@ -15,8 +15,8 @@ robot-majordome.concierge-robot {
 }
 
 .ct-bubble {
-  position: relative; margin-top: 22px; max-width: min(340px, 42vw); min-width: 0;
-  padding: 9px 14px; border-radius: 16px 16px 16px 6px;
+  position: relative; margin-top: 14px; width: max-content; max-width: min(400px, 44vw); min-width: 0;
+  padding: 8px 14px; border-radius: 16px 16px 16px 6px;
   background: var(--c-bubble); border: 1px solid var(--c-line);
   box-shadow: 0 14px 30px -22px var(--c-shadow);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
@@ -29,10 +29,12 @@ robot-majordome.concierge-robot {
 }
 .ct-bubble[data-speaking] .ct-bubble-tail { border-color: rgba(232, 51, 106, 0.35); }
 .ct-bubble-text, .ct-bubble-status {
-  position: relative; margin: 0; overflow: hidden;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  font-size: 0.86rem; line-height: 1.45; overflow-wrap: anywhere;
+  position: relative; display: flex; flex-direction: column; justify-content: flex-end;
+  max-height: calc(1.45em * 5); overflow: hidden;
+  font-size: 0.8rem; line-height: 1.45; overflow-wrap: anywhere;
 }
+.ct-bubble-text p, .ct-bubble-status p { margin: 0; }
+.ct-bubble-text[data-long] { -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 1.3em); mask-image: linear-gradient(180deg, transparent 0, #000 1.3em); }
 .ct-bubble-text { color: var(--c-ink); }
 .ct-bubble-status { color: var(--c-muted); font-family: var(--c-serif); font-style: italic; font-size: 0.95rem; }
 
@@ -60,7 +62,6 @@ button.ct-chip:hover { color: var(--c-ink); border-color: var(--c-line-2); }
 /* Stage */
 .concierge-main--session { padding-top: 8px; padding-bottom: 200px; }
 .concierge-stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
-.concierge-stage--panel { grid-template-columns: minmax(0, 1fr) 360px; }
 .concierge-stage-main { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
 .concierge-stage-hint {
   margin: 12vh auto 0; max-width: 360px; text-align: center;
@@ -138,14 +139,12 @@ button.ct-chip:hover { color: var(--c-ink); border-color: var(--c-line-2); }
 .cc-chevron { color: var(--c-muted); transition: transform 0.4s var(--c-ease), color 0.3s; }
 .cc-chevron--up { transform: rotate(180deg); }
 
-@media (max-width: 960px) {
-  .concierge-stage--panel { grid-template-columns: minmax(0, 1fr); }
-}
 @media (max-width: 600px) {
   .ct-bar { padding: 8px 10px 0; gap: 6px; }
   robot-majordome.concierge-robot { width: 92px; flex-basis: 92px; }
-  .ct-bubble { margin-top: 14px; max-width: calc(100vw - 92px - 96px); padding: 7px 10px; border-radius: 13px 13px 13px 5px; }
-  .ct-bubble-text, .ct-bubble-status { font-size: 0.76rem; line-height: 1.4; }
+  .ct-companion { min-height: 102px; }
+  .ct-bubble { margin-top: 8px; max-width: calc(100vw - 92px - 96px); padding: 6px 10px; border-radius: 13px 13px 13px 5px; }
+  .ct-bubble-text, .ct-bubble-status { font-size: 0.72rem; line-height: 1.4; max-height: calc(1.4em * 5); }
   .ct-bubble-status { font-size: 0.84rem; }
   .ct-actions { margin-top: 6px; gap: 4px; }
   .ct-chip { height: 28px; padding: 0 8px; font-size: 0.7rem; opacity: 0.75; }

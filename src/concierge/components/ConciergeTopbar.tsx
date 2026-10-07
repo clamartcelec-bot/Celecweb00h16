@@ -3,22 +3,17 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Plus, RotateCcw, X } from 'lucide-react';
 
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
-const SNIPPET_MAX = 96;
+const RECENT_MAX = 260;
 
-function splitSentences(text: string) {
+/** The last few sentences being spoken, so the bubble reads like a short, scrolling subtitle. */
+function recentSpeech(text: string) {
   const clean = text.replace(/\s+/g, ' ').trim();
-  if (!clean) return [];
-  return clean.match(/[^.!?…]+[.!?…]*\s*/g)?.map((part) => part.trim()).filter(Boolean) ?? [clean];
-}
-
-/** Only the sentence being spoken right now, trimmed to its last words when long. */
-function currentSnippet(text: string) {
-  const sentences = splitSentences(text);
-  if (!sentences.length) return { key: 0, text: '' };
-  let last = sentences[sentences.length - 1];
-  if (last.length < 14 && sentences.length > 1) last = `${sentences[sentences.length - 2]} ${last}`;
-  if (last.length > SNIPPET_MAX) last = `…${last.slice(-SNIPPET_MAX).replace(/^\S*\s/, '')}`;
-  return { key: sentences.length, text: last };
+  if (clean.length <= RECENT_MAX) return clean;
+  const tail = clean.slice(-RECENT_MAX);
+  const boundary = tail.search(/[.!?…]\s+\S/);
+  return boundary >= 0 && boundary < RECENT_MAX / 2
+    ? tail.slice(boundary + 1).trim()
+    : `…${tail.replace(/^\S*\s/, '')}`;
 }
 
 interface ConciergeTopbarProps {
@@ -34,8 +29,8 @@ interface ConciergeTopbarProps {
 }
 
 export function ConciergeTopbar({ robot, speech, statusLabel, speaking, timer, ended, onResume, onRestart, onClose }: ConciergeTopbarProps) {
-  const snippet = useMemo(() => currentSnippet(speech), [speech]);
-  const live = Boolean(snippet.text);
+  const recent = useMemo(() => recentSpeech(speech), [speech]);
+  const live = Boolean(recent);
 
   return (
     <header className="ct-bar">
@@ -44,16 +39,17 @@ export function ConciergeTopbar({ robot, speech, statusLabel, speaking, timer, e
         <div className="ct-bubble" data-live={live || undefined} data-speaking={speaking || undefined} aria-live="polite">
           <span className="ct-bubble-tail" aria-hidden="true" />
           <AnimatePresence mode="wait" initial={false}>
-            <motion.p
-              key={live ? `s-${snippet.key}` : `l-${statusLabel}`}
+            <motion.div
+              key={live ? 'speech' : `l-${statusLabel}`}
               className={live ? 'ct-bubble-text' : 'ct-bubble-status'}
+              data-long={recent.length > 150 || undefined}
               initial={{ opacity: 0, y: 6, filter: 'blur(4px)' }}
               animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
               exit={{ opacity: 0, y: -6, filter: 'blur(4px)' }}
               transition={{ duration: 0.28, ease: EASE }}
             >
-              {live ? snippet.text : statusLabel}
-            </motion.p>
+              <p>{live ? recent : statusLabel}</p>
+            </motion.div>
           </AnimatePresence>
         </div>
       </div>
