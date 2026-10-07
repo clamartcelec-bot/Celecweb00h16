@@ -44,6 +44,7 @@ interface Profile {
 interface ClientSpaceProps {
   onClose: () => void;
   onLogout: () => void;
+  initialTab?: Tab;
 }
 
 type Tab = 'overview' | 'requests' | 'invoices' | 'exchanges';
@@ -82,8 +83,8 @@ const typeIcon: Record<string, typeof Phone> = {
   note: FileText,
 };
 
-export function ClientSpace({ onClose, onLogout }: ClientSpaceProps) {
-  const [tab, setTab] = useState<Tab>('overview');
+export function ClientSpace({ onClose, onLogout, initialTab = 'overview' }: ClientSpaceProps) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);

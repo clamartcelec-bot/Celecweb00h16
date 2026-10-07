@@ -1,0 +1,233 @@
+import { AnimatePresence, motion } from 'motion/react';
+import { AlertTriangle, ChevronDown, History, Mic, MicOff, PhoneOff, Send } from 'lucide-react';
+import { useAudioLevels } from '../hooks/useAudioLevels';
+import type { ConciergeMessage } from '../types';
+
+const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+
+const QUICK_PROMPTS: Array<{ label: string; prompt: string }> = [
+  {
+    label: 'Prendre rendez-vous',
+    prompt: "Je souhaite prendre rendez-vous avec CELEC. Lance le mode rendez-vous et remplis la fiche avec moi.",
+  },
+  {
+    label: 'Ce que vous faites',
+    prompt: "Raconte-moi ce que fait CELEC : dépannage, travaux, projets. Illustre avec un ou deux billets du carnet si c'est pertinent.",
+  },
+  {
+    label: 'Avec qui vous travaillez',
+    prompt: "Avec quelles marques et quels partenaires CELEC travaille-t-il ? Présente-les et affiche les fiches correspondantes.",
+  },
+];
+
+const CALLBACK_PROMPT = 'Je préfère être rappelé plutôt que de continuer à parler. Prenons mes coordonnées.';
+
+interface ActiveViewProps {
+  timer: { formatted: string; warningLevel: 'none' | 'approaching' | 'ending' };
+  compact: boolean;
+  isMuted: boolean;
+  isUserSpeaking: boolean;
+  isAssistantSpeaking: boolean;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
+  onAudioAmplitude: (value: number) => void;
+  aiReply: string;
+  messages: ConciergeMessage[];
+  historyOpen: boolean;
+  onToggleHistory: () => void;
+  composerText: string;
+  onComposerChange: (value: string) => void;
+  onComposerKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onSendMessage: (text: string) => void;
+  onQuickAction: (prompt: string) => void;
+  onToggleMute: () => void;
+  onEnd: () => void;
+}
+
+export function ActiveView({
+  timer,
+  compact,
+  isMuted,
+  isUserSpeaking,
+  isAssistantSpeaking,
+  localStream,
+  remoteStream,
+  onAudioAmplitude,
+  aiReply,
+  messages,
+  historyOpen,
+  onToggleHistory,
+  composerText,
+  onComposerChange,
+  onComposerKeyDown,
+  onSendMessage,
+  onQuickAction,
+  onToggleMute,
+  onEnd,
+}: ActiveViewProps) {
+  const { inputLevels, outputLevels } = useAudioLevels(
+    isMuted ? null : localStream,
+    remoteStream,
+    onAudioAmplitude,
+  );
+  const showQuickPrompts = messages.length <= 1 && !aiReply;
+  const speaker = isAssistantSpeaking ? 'celec' : isUserSpeaking && !isMuted ? 'user' : 'none';
+
+  return (
+    <div className={`concierge-active ${compact ? 'concierge-active--compact' : ''}`}>
+      <AnimatePresence>
+        {timer.warningLevel === 'ending' && (
+          <motion.div
+            className="concierge-ending-notice"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+          >
+            <AlertTriangle size={16} />
+            La conversation va se terminer
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="concierge-stage" data-speaker={speaker}>
+        <div className="concierge-audio-viz">
+          <AudioBars label="Vous" variant="user" levels={inputLevels} active={isUserSpeaking && !isMuted} />
+          <span className="concierge-viz-sep" aria-hidden="true" />
+          <AudioBars label="CELEC" variant="celec" levels={outputLevels} active={isAssistantSpeaking} />
+        </div>
+
+        <motion.div
+          className="concierge-speech-card"
+          layout
+          transition={{ layout: { duration: 0.5, ease: EASE } }}
+        >
+          <span className="concierge-speech-label">
+            <span className={`concierge-speech-dot ${isAssistantSpeaking ? 'concierge-speech-dot--on' : ''}`} />
+            CELEC dit
+          </span>
+          <p className={`concierge-speech-text ${aiReply ? 'concierge-speech-text--live' : ''}`}>
+            {aiReply || 'Le concierge prend la parole…'}
+          </p>
+        </motion.div>
+      </div>
+
+      <div className="concierge-dock">
+        {messages.length > 0 && (
+          <div className="concierge-history">
+            <button onClick={onToggleHistory} className="concierge-history-toggle" aria-expanded={historyOpen}>
+              <History size={15} />
+              Historique de la conversation ({messages.length})
+              <ChevronDown size={15} className={`cc-chevron ${historyOpen ? 'cc-chevron--up' : ''}`} />
+            </button>
+            <AnimatePresence initial={false}>
+              {historyOpen && (
+                <motion.div
+                  className="concierge-history-list"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.35, ease: EASE }}
+                >
+                  <div className="concierge-history-inner">
+                    {messages.map((message) => (
+                      <div key={message.id} className={`concierge-bubble concierge-bubble--${message.role}`}>
+                        <span className="concierge-bubble-author">{message.role === 'user' ? 'Vous' : 'CELEC'}</span>
+                        <p>{message.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        <AnimatePresence initial={false}>
+          {showQuickPrompts && (
+            <motion.div
+              className="concierge-quick-actions"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+              transition={{ duration: 0.35, ease: EASE }}
+            >
+              {QUICK_PROMPTS.map((action) => (
+                <button key={action.label} onClick={() => onQuickAction(action.prompt)} className="concierge-quick-btn">
+                  {action.label}
+                </button>
+              ))}
+              <button onClick={() => onQuickAction(CALLBACK_PROMPT)} className="concierge-quick-btn">
+                Être rappelé
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="concierge-dock-bar">
+          <div className="concierge-composer">
+            <textarea
+              value={composerText}
+              onChange={(event) => onComposerChange(event.target.value)}
+              onKeyDown={onComposerKeyDown}
+              rows={1}
+              placeholder="Écrivez ou parlez…"
+              className="concierge-composer-input"
+            />
+            <motion.button
+              onClick={() => onSendMessage(composerText)}
+              className="concierge-composer-send"
+              disabled={!composerText.trim()}
+              aria-label="Envoyer le message"
+              whileTap={{ scale: 0.9 }}
+            >
+              <Send size={17} />
+            </motion.button>
+          </div>
+
+          <div className="concierge-controls">
+            <motion.button
+              onClick={onToggleMute}
+              className={`concierge-mic-btn ${isMuted ? 'concierge-mic-btn--muted' : 'concierge-mic-btn--active'}`}
+              aria-label={isMuted ? 'Réactiver le micro' : 'Couper le micro'}
+              aria-pressed={isMuted}
+              whileTap={{ scale: 0.9 }}
+            >
+              {isMuted ? <MicOff size={19} /> : <Mic size={19} />}
+            </motion.button>
+            <motion.button onClick={onEnd} className="concierge-end-btn" whileTap={{ scale: 0.95 }}>
+              <PhoneOff size={18} />
+              Raccrocher
+            </motion.button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AudioBars({
+  label,
+  variant,
+  levels,
+  active,
+}: {
+  label: string;
+  variant: 'user' | 'celec';
+  levels: number[];
+  active: boolean;
+}) {
+  return (
+    <div className={`concierge-viz-column concierge-viz-column--${variant}`}>
+      <span className="concierge-viz-label">{label}</span>
+      <div className={`concierge-viz-bars ${active ? 'concierge-viz-bars--active' : ''}`}>
+        {levels.map((level, index) => (
+          <div
+            key={index}
+            className={`concierge-viz-bar concierge-viz-bar--${variant}`}
+            style={{ height: `${Math.max(6, Math.round(level * 72))}px` }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}

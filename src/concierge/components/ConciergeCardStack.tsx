@@ -46,6 +46,7 @@ export function ConciergeCardStack({ cards, ended, detailHrefFor }: ConciergeCar
     <div className="concierge-flow">
       <div className="concierge-flow-head">
         <span className="concierge-flow-label">Ce que je vous montre</span>
+        <span className="concierge-flow-count">{String(cards.length).padStart(2, '0')}</span>
       </div>
 
       <div className="concierge-card-list" ref={listRef}>

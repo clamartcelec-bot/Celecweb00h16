@@ -1,29 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import {
-  AlertTriangle,
-  ArrowLeft,
-  Camera,
-  CheckCircle2,
-  ClipboardList,
-  ChevronDown,
-  Clock3,
-  History,
-  Loader2,
-  MapPin,
-  Mic,
-  MicOff,
-  LogOut,
-  Paperclip,
-  Phone,
-  PhoneOff,
-  RotateCcw,
-  Send,
-  X,
-} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { useSearchParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { useRealtimeSession, type ToolCall, type TranscriptEvent, type ToolActivity } from '@/concierge/hooks/useRealtimeSession';
 import { ConciergeRobot, type ConciergeRobotHandle } from '@/concierge/components/ConciergeRobot';
 import { useConversationTimer } from '../hooks/useConversationTimer';
-import { useAudioLevels } from '../hooks/useAudioLevels';
 import { formatConciergeContext, formatConciergeResume, loadConciergeContext, type ConciergeContext } from '../services/context';
 import {
   EMPTY_KNOWLEDGE,
@@ -50,39 +31,12 @@ import {
   type RequestUrgency,
 } from '../types';
 import { ConciergeCardStack } from './ConciergeCardStack';
+import { ActiveView } from './ConciergeActiveView';
+import { RequestPanel } from './ConciergeRequestPanel';
+import { ConnectingView, EndedView, ErrorView, IdleView, UnavailableView } from './ConciergeStageViews';
 import '../concierge.css';
 
-const TOPICS: Array<{ label: string; category: RequestCategory }> = [
-  { label: "J'ai une panne", category: 'depannage' },
-  { label: "J'ai des travaux", category: 'travaux' },
-  { label: "J'ai un projet", category: 'projet' },
-  { label: 'Je ne sais pas vraiment', category: 'question' },
-];
-
-const QUICK_PROMPTS: Array<{ label: string; prompt: string }> = [
-  {
-    label: 'Prendre rendez-vous',
-    prompt: "Je souhaite prendre rendez-vous avec CELEC. Lance le mode rendez-vous et remplis la fiche avec moi.",
-  },
-  {
-    label: 'Ce que vous faites',
-    prompt: "Raconte-moi ce que fait CELEC : dépannage, travaux, projets. Illustre avec un ou deux billets du carnet si c'est pertinent.",
-  },
-  {
-    label: 'Avec qui vous travaillez',
-    prompt: "Avec quelles marques et quels partenaires CELEC travaille-t-il ? Présente-les et affiche les fiches correspondantes.",
-  },
-];
-
-const CALLBACK_PROMPT = 'Je préfère être rappelé plutôt que de continuer à parler. Prenons mes coordonnées.';
-
-function formatPhone(value: string) {
-  return value.replace(/\D/g, '').slice(0, 12).replace(/(\d{2})(?=\d)/g, '$1 ').trim();
-}
-
-function hasValidPhone(value: string) {
-  return value.replace(/\D/g, '').length >= 8;
-}
+const PAGE_EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 function stringArg(args: Record<string, unknown>, key: string) {
   return typeof args[key] === 'string' ? args[key].trim() : undefined;
@@ -617,6 +571,22 @@ export function ConciergePage() {
     start();
   };
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const autoStartedRef = useRef(false);
+  const wantsAutoStart = searchParams.get('start') === '1';
+
+  // Arrivée depuis le robot de l’accueil : on décroche dès que le carnet est prêt.
+  useEffect(() => {
+    if (!wantsAutoStart || autoStartedRef.current || !knowledgeReady) return;
+    autoStartedRef.current = true;
+    setSearchParams((params) => {
+      params.delete('start');
+      return params;
+    }, { replace: true });
+    if (settings.enabled && status === 'idle') handleStart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsAutoStart, knowledgeReady, settings.enabled, status]);
+
   const handleGoBack = () => {
     handleEnd();
     window.location.href = '/';
@@ -702,525 +672,147 @@ export function ConciergePage() {
     );
   }, [appointmentMode, cards, status]);
 
+  const phase: 'unavailable' | 'idle' | 'connecting' | 'error' | 'session' =
+    status === 'idle' ? (settings.enabled ? 'idle' : 'unavailable')
+      : status === 'requesting-mic' || status === 'connecting' ? 'connecting'
+        : status === 'error' ? 'error' : 'session';
+
+  const statusLabel = status === 'connected'
+    ? isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…'
+      : isResponding || toolActivity?.phase === 'started' ? 'Je m’en occupe…' : 'À l’écoute'
+    : status === 'requesting-mic' || status === 'connecting' ? 'Je me prépare…'
+      : status === 'error' ? 'Connexion à réessayer' : status === 'ended' ? 'À bientôt !' : 'Bonjour !';
+
   return (
-    <div className="concierge-page">
+    <div className="concierge-page" data-status={status}>
+      <div className="concierge-backdrop" aria-hidden="true">
+        <span className="concierge-aura concierge-aura--rose" />
+        <span className="concierge-aura concierge-aura--ion" />
+        <span className="concierge-aura concierge-aura--sand" />
+        <span className="concierge-grid" />
+      </div>
+
       <header className="concierge-header">
-        <button onClick={handleGoBack} className="concierge-back" aria-label="Retour">
-          <ArrowLeft size={20} />
-        </button>
-        <span className="concierge-logo">CELEC</span>
+        <motion.button
+          onClick={handleGoBack}
+          className="concierge-back"
+          aria-label="Retour"
+          whileHover={{ x: -2 }}
+          whileTap={{ scale: 0.92 }}
+        >
+          <ArrowLeft size={18} />
+        </motion.button>
+        <span className="concierge-logo">CELEC<span>.</span></span>
         <div className="concierge-header-spacer" />
+        <AnimatePresence>
+          {status === 'connected' && (
+            <motion.span
+              className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+            >
+              <span className="concierge-live-dot" />
+              {timer.formatted}
+            </motion.span>
+          )}
+        </AnimatePresence>
       </header>
 
       <div className="concierge-companion">
         <ConciergeRobot ref={robotRef} status={status}
           isUserSpeaking={isUserSpeaking} isAssistantSpeaking={isAssistantSpeaking}
           isResponding={isResponding} toolActivity={toolActivity} />
-        <div className="concierge-companion-caption">
+        <motion.div
+          className="concierge-companion-caption"
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6, delay: 0.2, ease: PAGE_EASE }}
+        >
           <span className="concierge-companion-name">Votre concierge CELEC</span>
           <div className="concierge-status-row" role="status">
-            {status === 'connected' && <span className="concierge-live-dot" />}
-            <span>{status === 'connected'
-              ? isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…'
-                : isResponding || toolActivity?.phase === 'started' ? 'Je m’en occupe…' : 'À l’écoute'
-              : status === 'requesting-mic' || status === 'connecting' ? 'Je me prépare…'
-                : status === 'error' ? 'Connexion à réessayer' : status === 'ended' ? 'À bientôt !' : 'Bonjour !'}</span>
-            {status === 'connected' && <span className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}>
-              {timer.formatted}
-            </span>}
+            <span className={`concierge-status-dot concierge-status-dot--${status}`} />
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={statusLabel}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+              >
+                {statusLabel}
+              </motion.span>
+            </AnimatePresence>
           </div>
-        </div>
+        </motion.div>
       </div>
 
       <main className={`concierge-main ${inSession && (showRequestPanel || cards.length > 0) ? 'concierge-main--flow' : ''}`}>
-        {status === 'idle' && !settings.enabled && (
-          <div className="concierge-idle">
-            <div className="concierge-greeting">
-              <h1>Bonjour.</h1>
-              <p>Le concierge numérique est momentanément indisponible.</p>
-            </div>
-            <a className="concierge-back-btn" href="/#contact-box">Nous écrire</a>
-          </div>
-        )}
-
-        {status === 'idle' && settings.enabled && (
-          <IdleView greeting={settings.greeting} knowledgeReady={knowledgeReady} onStart={handleStart} />
-        )}
-        {status === 'requesting-mic' && <ConnectingView label="Autorisation du micro..." />}
-        {status === 'connecting' && <ConnectingView label="Connexion en cours..." />}
-
-        {status === 'connected' && (
-          <>
-            <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
-              <ActiveView
-                timer={timer}
-                compact={cards.length > 0 || appointmentMode}
-                isMuted={isMuted}
-                isUserSpeaking={isUserSpeaking}
-                isAssistantSpeaking={isAssistantSpeaking}
-                localStream={localStream}
-                remoteStream={remoteStream}
-                onAudioAmplitude={handleAudioAmplitude}
-                aiReply={aiReply}
-                messages={messages}
-                historyOpen={historyOpen}
-                onToggleHistory={() => setHistoryOpen((value) => !value)}
-                composerText={composerText}
-                onComposerChange={setComposerText}
-                onComposerKeyDown={handleComposerKeyDown}
-                onSendMessage={handleSendMessage}
-                onQuickAction={sendUserText}
-                onToggleMute={toggleMute}
-                onEnd={handleEnd}
-              />
-              {showRequestPanel && (
-                <RequestPanel
-                  draft={draft}
-                  submissionState={submissionState}
-                  uploading={uploading}
-                  uploadError={uploadError}
-                  onFilePick={handleFilePick}
-                  onRemoveAttachment={removeAttachment}
-                  onSubmit={handleManualSubmit}
-                  onExit={handleExitAppointment}
-                />
-              )}
-            </div>
-            {flow}
-          </>
-        )}
-
-        {status === 'error' && <ErrorView error={error} onRetry={() => handleStart()} />}
-
-        {status === 'ended' && (
-          <>
-            <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
-              <EndedView draft={draft} onRestart={() => handleStart()} onResume={handleResume} onBack={handleGoBack} />
-              {showRequestPanel && (
-                <RequestPanel
-                  draft={draft}
-                  submissionState={submissionState}
-                  uploading={uploading}
-                  uploadError={uploadError}
-                  onFilePick={handleFilePick}
-                  onRemoveAttachment={removeAttachment}
-                  onSubmit={handleManualSubmit}
-                />
-              )}
-            </div>
-            {flow}
-          </>
-        )}
-      </main>
-    </div>
-  );
-}
-
-function IdleView({
-  greeting,
-  knowledgeReady,
-  onStart,
-}: {
-  greeting: string;
-  knowledgeReady: boolean;
-  onStart: (topic?: { label: string; category: RequestCategory }) => void;
-}) {
-  return (
-    <div className="concierge-idle">
-      <div className="concierge-greeting">
-        <h1>Bonjour.</h1>
-        <p>{greeting}</p>
-      </div>
-
-      <button onClick={() => onStart()} className="concierge-start-btn" disabled={!knowledgeReady}>
-        <Mic size={24} />
-        {knowledgeReady ? 'Parler à CELEC' : 'Préparation du carnet…'}
-      </button>
-
-      <div className="concierge-quick-topics">
-        {TOPICS.map((topic) => (
-          <button key={topic.category} onClick={() => onStart(topic)} className="concierge-topic">
-            {topic.label}
-          </button>
-        ))}
-      </div>
-
-      <p className="concierge-disclosure">
-        Vous allez parler avec le concierge numérique de CELEC. Il s’appuie sur notre carnet d’interventions publié et sur nos partenaires pour vous répondre, et affiche à l’écran les éléments dont il parle.
-      </p>
-    </div>
-  );
-}
-
-function ConnectingView({ label }: { label: string }) {
-  return (
-    <div className="concierge-connecting">
-      <div className="concierge-pulse" />
-      <p>{label}</p>
-    </div>
-  );
-}
-
-interface ActiveViewProps {
-  timer: { formatted: string; warningLevel: 'none' | 'approaching' | 'ending' };
-  compact: boolean;
-  isMuted: boolean;
-  isUserSpeaking: boolean;
-  isAssistantSpeaking: boolean;
-  localStream: MediaStream | null;
-  remoteStream: MediaStream | null;
-  onAudioAmplitude: (value: number) => void;
-  aiReply: string;
-  messages: ConciergeMessage[];
-  historyOpen: boolean;
-  onToggleHistory: () => void;
-  composerText: string;
-  onComposerChange: (value: string) => void;
-  onComposerKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-  onSendMessage: (text: string) => void;
-  onQuickAction: (prompt: string) => void;
-  onToggleMute: () => void;
-  onEnd: () => void;
-}
-
-function ActiveView({
-  timer,
-  compact,
-  isMuted,
-  isUserSpeaking,
-  isAssistantSpeaking,
-  localStream,
-  remoteStream,
-  onAudioAmplitude,
-  aiReply,
-  messages,
-  historyOpen,
-  onToggleHistory,
-  composerText,
-  onComposerChange,
-  onComposerKeyDown,
-  onSendMessage,
-  onQuickAction,
-  onToggleMute,
-  onEnd,
-}: ActiveViewProps) {
-  const { inputLevels, outputLevels } = useAudioLevels(
-    isMuted ? null : localStream,
-    remoteStream,
-    onAudioAmplitude,
-  );
-  const showQuickPrompts = messages.length <= 1 && !aiReply;
-  const displayedReply = aiReply;
-
-  return (
-    <div className={`concierge-active ${compact ? 'concierge-active--compact' : ''}`}>
-      {timer.warningLevel === 'ending' && (
-        <div className="concierge-ending-notice">
-          <AlertTriangle size={16} />
-          La conversation va se terminer
-        </div>
-      )}
-
-      <div className="concierge-stage">
-        <div className="concierge-audio-viz">
-          <AudioBars label="VOUS" variant="user" levels={inputLevels} active={isUserSpeaking && !isMuted} />
-          <AudioBars label="CELEC" variant="celec" levels={outputLevels} active={isAssistantSpeaking} />
-        </div>
-
-        <div className="concierge-speech-card">
-          <span className="concierge-speech-label">CELEC dit</span>
-          <p className={`concierge-speech-text ${displayedReply ? 'concierge-speech-text--live' : ''}`}>
-            {displayedReply || 'Le concierge prend la parole…'}
-          </p>
-        </div>
-      </div>
-
-      <div className="concierge-dock">
-        {messages.length > 0 && (
-          <div className="concierge-history">
-            <button onClick={onToggleHistory} className="concierge-history-toggle">
-              <History size={15} />
-              Historique de la conversation ({messages.length})
-              <ChevronDown size={15} className={`cc-chevron ${historyOpen ? 'cc-chevron--up' : ''}`} />
-            </button>
-            {historyOpen && (
-              <div className="concierge-history-list">
-                {messages.map((message) => (
-                  <div key={message.id} className={`concierge-bubble concierge-bubble--${message.role}`}>
-                    <span className="concierge-bubble-author">{message.role === 'user' ? 'Vous' : 'CELEC'}</span>
-                    <p>{message.text}</p>
-                  </div>
-                ))}
-              </div>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={phase}
+            className="concierge-phase"
+            initial={{ opacity: 0, y: 16, filter: 'blur(8px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -12, filter: 'blur(6px)' }}
+            transition={{ duration: 0.35, ease: PAGE_EASE }}
+          >
+            {phase === 'unavailable' && <UnavailableView />}
+            {phase === 'idle' && (
+              <IdleView greeting={settings.greeting} knowledgeReady={knowledgeReady} onStart={handleStart} />
             )}
-          </div>
-        )}
+            {phase === 'connecting' && (
+              <ConnectingView label={status === 'requesting-mic' ? 'Autorisation du micro…' : 'Connexion en cours…'} />
+            )}
+            {phase === 'error' && <ErrorView error={error} onRetry={() => handleStart()} />}
 
-        <div className="concierge-composer">
-          <textarea
-            value={composerText}
-            onChange={(event) => onComposerChange(event.target.value)}
-            onKeyDown={onComposerKeyDown}
-            rows={1}
-            placeholder="Écrivez ou parlez…"
-            className="concierge-composer-input"
-          />
-          <button
-            onClick={() => onSendMessage(composerText)}
-            className="concierge-composer-send"
-            disabled={!composerText.trim()}
-            aria-label="Envoyer le message"
-          >
-            <Send size={18} />
-          </button>
-        </div>
-
-        {showQuickPrompts && (
-          <div className="concierge-quick-actions">
-            {QUICK_PROMPTS.map((action) => (
-              <button key={action.label} onClick={() => onQuickAction(action.prompt)} className="concierge-quick-btn">
-                {action.label}
-              </button>
-            ))}
-            <button onClick={() => onQuickAction(CALLBACK_PROMPT)} className="concierge-quick-btn">
-              Être rappelé
-            </button>
-          </div>
-        )}
-
-        <div className="concierge-controls">
-          <button
-            onClick={onToggleMute}
-            className={`concierge-mic-btn ${isMuted ? '' : 'concierge-mic-btn--active'}`}
-            aria-label={isMuted ? 'Réactiver le micro' : 'Couper le micro'}
-            aria-pressed={isMuted}
-          >
-            {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-          </button>
-          <button onClick={onEnd} className="concierge-end-btn">
-            <PhoneOff size={20} />
-            Raccrocher
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AudioBars({
-  label,
-  variant,
-  levels,
-  active,
-}: {
-  label: string;
-  variant: 'user' | 'celec';
-  levels: number[];
-  active: boolean;
-}) {
-  return (
-    <div className="concierge-viz-column">
-      <span className="concierge-viz-label">{label}</span>
-      <div className={`concierge-viz-bars ${active ? 'concierge-viz-bars--active' : ''}`}>
-        {levels.map((level, index) => (
-          <div
-            key={index}
-            className={`concierge-viz-bar concierge-viz-bar--${variant}`}
-            style={{ height: `${Math.round(level * 84)}px` }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-interface RequestPanelProps {
-  draft: ConciergeDraft;
-  submissionState: 'idle' | 'sending' | 'sent' | 'error';
-  uploading: boolean;
-  uploadError: string | null;
-  onFilePick: (event: ChangeEvent<HTMLInputElement>) => void;
-  onRemoveAttachment: (url: string) => void;
-  onSubmit: () => void;
-  onExit?: () => void;
-}
-
-function RequestPanel({
-  draft,
-  submissionState,
-  uploading,
-  uploadError,
-  onFilePick,
-  onRemoveAttachment,
-  onSubmit,
-  onExit,
-}: RequestPanelProps) {
-  const sent = submissionState === 'sent';
-  const sending = submissionState === 'sending';
-  const name = draft.lastName.trim() || draft.firstName.trim();
-  const phone = formatPhone(draft.phone);
-  const phoneOk = hasValidPhone(draft.phone);
-  const objective = draft.summary.trim();
-  const readyToSend = Boolean(name) && phoneOk && Boolean(objective);
-  const canSend = readyToSend && !sending;
-
-  return (
-    <aside className="concierge-request-panel" aria-live="polite">
-      <div className="concierge-panel-title">
-        <ClipboardList size={18} />
-        <span>Prise de rendez-vous</span>
-        {sent && !canSend && <span className="concierge-submit-status concierge-submit-status--sent">Transmise</span>}
-      </div>
-
-      <div className="concierge-field">
-        <span className="concierge-field-label">Nom</span>
-        <span className={`concierge-field-value ${name ? 'concierge-field-value--ok' : 'concierge-field-value--missing'}`}>
-          {name || 'À préciser'}
-        </span>
-      </div>
-
-      <div className="concierge-field">
-        <span className="concierge-field-label">Téléphone</span>
-        <span className={`concierge-field-value concierge-field-value--spaced ${phoneOk ? 'concierge-field-value--ok' : 'concierge-field-value--missing'}`}>
-          {phone || 'À préciser'}
-        </span>
-      </div>
-
-      <div className="concierge-field">
-        <span className="concierge-field-label">Adresse</span>
-        <span className={`concierge-field-value ${draft.location ? 'concierge-field-value--ok' : ''}`}>
-          {draft.location || 'Facultatif'}
-        </span>
-      </div>
-
-      {draft.category && (
-        <PanelLine icon={<ClipboardList size={15} />} label="Type" value={CATEGORY_LABELS[draft.category]} />
-      )}
-      {draft.siteType && <PanelLine icon={<MapPin size={15} />} label="Site" value={draft.siteType} />}
-      {draft.urgency && (
-        <PanelLine icon={<AlertTriangle size={15} />} label="Priorité" value={URGENCY_LABELS[draft.urgency]} />
-      )}
-      {draft.availability && (
-        <PanelLine icon={<Clock3 size={15} />} label="Disponibilités" value={draft.availability} />
-      )}
-
-      <div className="concierge-panel-objective">
-        <span className={`concierge-panel-objective-label ${objective ? 'concierge-panel-objective-label--ok' : 'concierge-panel-objective-label--missing'}`}>
-          Objet de l’appel
-        </span>
-        <p className={objective ? '' : 'concierge-panel-objective-empty'}>
-          {objective || 'À préciser pendant l’échange.'}
-        </p>
-      </div>
-
-      <div className="concierge-panel-files">
-        <label className="concierge-file-btn">
-          {uploading ? <Loader2 size={15} className="concierge-spin" /> : <Paperclip size={15} />}
-          Ajouter une photo ou une vidéo
-          <input
-            type="file"
-            accept="image/*,video/*"
-            onChange={onFilePick}
-            hidden
-          />
-        </label>
-
-        {uploadError && <p className="concierge-file-error">{uploadError}</p>}
-
-        {draft.attachments.length > 0 && (
-          <ul className="concierge-file-list">
-            {draft.attachments.map((url) => (
-              <li key={url}>
-                <Camera size={13} />
-                <span>{url.split('/').pop()}</span>
-                <button onClick={() => onRemoveAttachment(url)} aria-label="Retirer le fichier">
-                  <X size={13} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {draft.nextStep && (
-        <div className="concierge-panel-next">
-          <CheckCircle2 size={15} />
-          <span>{draft.nextStep}</span>
-        </div>
-      )}
-
-      <button
-        onClick={onSubmit}
-        disabled={!canSend}
-        className={`concierge-submit-btn ${readyToSend ? 'concierge-submit-btn--ready' : ''} ${sent && !readyToSend ? 'concierge-submit-btn--sent' : ''}`}
-      >
-        {sending && <Loader2 size={16} className="concierge-spin" />}
-        {sent && !sending && <CheckCircle2 size={16} />}
-        {sending ? 'Envoi…' : sent ? 'Renvoyer la demande' : 'Envoyer la demande'}
-      </button>
-
-      {onExit && (
-        <button onClick={onExit} className="concierge-exit-btn">
-          <LogOut size={14} />
-          Sortir de la prise de rendez-vous
-        </button>
-      )}
-
-      {!readyToSend && !sent && (
-        <p className="concierge-panel-hint">
-          Le nom, le téléphone et l’objet de l’appel sont nécessaires pour envoyer la demande.
-        </p>
-      )}
-      {submissionState === 'error' && (
-        <p className="concierge-file-error">L’envoi a échoué. Réessayez dans quelques instants.</p>
-      )}
-    </aside>
-  );
-}
-
-function PanelLine({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className={`concierge-panel-line ${value ? 'concierge-panel-line--filled' : ''}`}>
-      {icon}
-      <span className="concierge-panel-label">{label}</span>
-      <span className="concierge-panel-value">{value || 'À préciser'}</span>
-    </div>
-  );
-}
-
-function ErrorView({ error, onRetry }: { error: string | null; onRetry: () => void }) {
-  return (
-    <div className="concierge-error">
-      <MicOff size={48} className="concierge-error-icon" />
-      <p className="concierge-error-msg">{error || 'Une erreur est survenue.'}</p>
-      <button onClick={onRetry} className="concierge-retry-btn">
-        <RotateCcw size={18} />
-        Réessayer
-      </button>
-    </div>
-  );
-}
-
-function EndedView({ draft, onRestart, onResume, onBack }: { draft: ConciergeDraft; onRestart: () => void; onResume: () => void; onBack: () => void }) {
-  return (
-    <div className="concierge-ended">
-      <h2>Merci pour votre appel.</h2>
-      <p>
-        {draft.summary
-          ? 'Votre fiche reste disponible sur cette page. Vérifiez que la transmission a bien été confirmée pendant l’appel.'
-          : "L'équipe CELEC reste disponible si vous souhaitez préciser votre demande."}
-      </p>
-      <div className="concierge-ended-actions">
-        <button onClick={onResume} className="concierge-restart-btn">
-          <Phone size={18} />
-          Reprendre l’appel
-        </button>
-        <button onClick={onRestart} className="concierge-retry-btn">
-          <RotateCcw size={18} />
-          Nouvel appel
-        </button>
-        <button onClick={onBack} className="concierge-back-btn">Retour à l'accueil</button>
-      </div>
+            {phase === 'session' && (
+              <>
+                <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
+                  {status === 'connected' ? (
+                    <ActiveView
+                      timer={timer}
+                      compact={cards.length > 0 || appointmentMode}
+                      isMuted={isMuted}
+                      isUserSpeaking={isUserSpeaking}
+                      isAssistantSpeaking={isAssistantSpeaking}
+                      localStream={localStream}
+                      remoteStream={remoteStream}
+                      onAudioAmplitude={handleAudioAmplitude}
+                      aiReply={aiReply}
+                      messages={messages}
+                      historyOpen={historyOpen}
+                      onToggleHistory={() => setHistoryOpen((value) => !value)}
+                      composerText={composerText}
+                      onComposerChange={setComposerText}
+                      onComposerKeyDown={handleComposerKeyDown}
+                      onSendMessage={handleSendMessage}
+                      onQuickAction={sendUserText}
+                      onToggleMute={toggleMute}
+                      onEnd={handleEnd}
+                    />
+                  ) : (
+                    <EndedView draft={draft} onRestart={() => handleStart()} onResume={handleResume} onBack={handleGoBack} />
+                  )}
+                  {showRequestPanel && (
+                    <RequestPanel
+                      draft={draft}
+                      submissionState={submissionState}
+                      uploading={uploading}
+                      uploadError={uploadError}
+                      onFilePick={handleFilePick}
+                      onRemoveAttachment={removeAttachment}
+                      onSubmit={handleManualSubmit}
+                      onExit={status === 'connected' ? handleExitAppointment : undefined}
+                    />
+                  )}
+                </div>
+                {flow}
+              </>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </main>
     </div>
   );
 }
