@@ -8,6 +8,10 @@ const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 const QUICK_PROMPTS: Array<{ label: string; prompt: string }> = [
   {
+    label: 'Vos horaires',
+    prompt: 'Quels sont vos horaires ? À quelle heure fermez-vous ?',
+  },
+  {
     label: 'Prendre rendez-vous',
     prompt: "Je souhaite prendre rendez-vous avec CELEC. Lance le mode rendez-vous et remplis la fiche avec moi.",
   },
@@ -25,14 +29,12 @@ const CALLBACK_PROMPT = 'Je préfère être rappelé plutôt que de continuer à
 
 interface ActiveViewProps {
   timer: { formatted: string; warningLevel: 'none' | 'approaching' | 'ending' };
-  compact: boolean;
   isMuted: boolean;
   isUserSpeaking: boolean;
   isAssistantSpeaking: boolean;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   onAudioAmplitude: (value: number) => void;
-  aiReply: string;
   messages: ConciergeMessage[];
   historyOpen: boolean;
   onToggleHistory: () => void;
@@ -47,14 +49,12 @@ interface ActiveViewProps {
 
 export function ActiveView({
   timer,
-  compact,
   isMuted,
   isUserSpeaking,
   isAssistantSpeaking,
   localStream,
   remoteStream,
   onAudioAmplitude,
-  aiReply,
   messages,
   historyOpen,
   onToggleHistory,
@@ -71,13 +71,12 @@ export function ActiveView({
     remoteStream,
     onAudioAmplitude,
   );
-  const showQuickPrompts = messages.length <= 1 && !aiReply;
-  const speaker = isAssistantSpeaking ? 'celec' : isUserSpeaking && !isMuted ? 'user' : 'none';
+  const showQuickPrompts = messages.length <= 1;
   const micLevel = isMuted ? 0 : Math.min(1, inputLevels.reduce((sum, level) => sum + level, 0) / Math.max(1, inputLevels.length) * 2.4);
   const timeline = useSpeechTimeline(isUserSpeaking && !isMuted, isAssistantSpeaking);
 
   return (
-    <div className={`concierge-active ${compact ? 'concierge-active--compact' : ''}`}>
+    <div className="concierge-dock-wrap">
       <AnimatePresence>
         {timer.warningLevel === 'ending' && (
           <motion.div
@@ -91,29 +90,6 @@ export function ActiveView({
           </motion.div>
         )}
       </AnimatePresence>
-
-      <div className="concierge-caption" data-speaker={speaker} aria-live="polite">
-        <span className="concierge-caption-label">
-          <span className={`concierge-speech-dot ${isAssistantSpeaking ? 'concierge-speech-dot--on' : ''}`} />
-          CELEC
-        </span>
-        <div className="concierge-caption-window">
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.p
-              key={aiReply ? 'live' : 'waiting'}
-              className={`concierge-caption-text ${aiReply ? 'concierge-caption-text--live' : ''}`}
-              initial={{ opacity: 0, filter: 'blur(6px)' }}
-              animate={{ opacity: 1, filter: 'blur(0px)' }}
-              exit={{ opacity: 0, filter: 'blur(6px)' }}
-              transition={{ duration: 0.45, ease: EASE }}
-            >
-              {aiReply || 'Je vous écoute. Posez votre question, je vous montre ce que nous avons.'}
-            </motion.p>
-          </AnimatePresence>
-        </div>
-      </div>
-
-      <div className="concierge-active-spacer" aria-hidden="true" />
 
       <div className="concierge-dock">
         {messages.length > 0 && (

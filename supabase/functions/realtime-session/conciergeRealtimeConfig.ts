@@ -15,6 +15,14 @@ export interface ConciergeSettings {
   show_brand_cards?: boolean | null;
   voice?: string | null;
   enabled?: boolean | null;
+  facts?: CompanyFact[];
+}
+
+export interface CompanyFact {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
 }
 
 export const DEFAULT_CONCIERGE_VOICE = 'coral';
@@ -151,6 +159,24 @@ export const CELEC_CONCIERGE_TOOLS: FunctionTool[] = [
   },
   {
     type: 'function',
+    name: 'show_fact',
+    description:
+      'Épingle à l’écran une ou plusieurs balises de la FICHE SOCIÉTÉ (horaires, zone, rappel…). La balise reste visible pendant tout l’appel. À utiliser dès que tu réponds avec une information de la fiche.',
+    parameters: {
+      type: 'object',
+      properties: {
+        keys: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Clés exactes des informations de la FICHE SOCIÉTÉ à épingler (1 à 3).',
+        },
+      },
+      required: ['keys'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
     name: 'begin_appointment_flow',
     description:
       'Passe en mode rendez-vous dès que le client veut être contacté ou fixer un rendez-vous. À partir de cet instant, tu ne traites plus les questions sur le site.',
@@ -214,6 +240,7 @@ export function buildConciergeInstructions(settings: ConciergeSettings | null): 
   const greeting = text(settings?.greeting);
 
   const sections: string[] = [prompt];
+  const facts = (settings?.facts ?? []).filter((fact) => fact.key && fact.value);
 
   if (greeting) {
     sections.push(
@@ -232,6 +259,16 @@ export function buildConciergeInstructions(settings: ConciergeSettings | null): 
       '- Garde des réponses courtes : deux ou trois phrases à l’oral, puis laisse la parole.',
     ].join('\n'),
   );
+  if (facts.length) {
+    sections.push(
+      [
+        'FICHE SOCIÉTÉ (informations officielles et à jour de CELEC — elles priment sur tout le reste)',
+        ...facts.map((fact) => `- [${fact.key}] ${fact.label} : ${fact.value}${fact.detail ? ` — ${fact.detail}` : ''}`),
+        '- Quand tu réponds avec l’une de ces informations (par exemple « vous fermez à quelle heure ? »), donne la réponse à l’oral et appelle show_fact avec la clé correspondante pour l’épingler à l’écran.',
+        '- N’invente jamais d’horaire, de tarif ou de zone qui ne figure pas dans cette fiche.',
+      ].join('\n'),
+    );
+  }
   sections.push(
     [
       'QUAND TU N’AS PAS LA RÉPONSE',

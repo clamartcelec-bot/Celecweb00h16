@@ -251,7 +251,7 @@ function App() {
     return <AdminDashboard onClose={() => go('home')} />;
   }
 
-  const receding = conciergeOpen ? (conciergeLive ? '2' : '1') : undefined;
+  const receding = conciergeOpen ? (conciergeLive ? '2' : '1') : portal ? '1' : undefined;
 
   return (
     <>
@@ -434,7 +434,9 @@ function App() {
         <ConciergeTransition
           origin={portal}
           label={t.robotEntering}
+          cancelLabel={t.robotCancel}
           onDone={() => { setConciergeOpen(true); setPortal(null); }}
+          onCancel={() => setPortal(null)}
         />
       )}
     </AnimatePresence>

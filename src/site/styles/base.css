@@ -233,20 +233,15 @@ html.dark .s-aura { opacity: 0.22; }
 .s-fab { position: fixed; z-index: 50; bottom: 24px; inset-inline-end: 24px; width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; background: var(--s-accent); color: #fff; box-shadow: 0 18px 40px -12px rgba(232, 51, 106, 0.6); }
 
 /* ─── Portal transition to concierge ─── */
-.s-portal { position: fixed; inset: 0; z-index: 200; overflow: hidden; display: grid; place-items: center; background: #07080b; color: #fff; direction: ltr; }
+.s-portal { position: fixed; inset: 0; z-index: 200; overflow: hidden; display: grid; place-items: center; background: rgba(226, 226, 230, 0.42); -webkit-backdrop-filter: blur(6px) saturate(0.9); backdrop-filter: blur(6px) saturate(0.9); color: #15161a; direction: ltr; cursor: pointer; }
 .s-portal-aura { position: absolute; border-radius: 50%; filter: blur(90px); pointer-events: none; }
-.s-portal-aura--rose { width: 56vmax; height: 56vmax; top: -24vmax; right: -14vmax; background: radial-gradient(circle, rgba(232, 51, 106, 0.42), transparent 62%); opacity: 0.7; }
-.s-portal-aura--ion { width: 48vmax; height: 48vmax; bottom: -22vmax; left: -16vmax; background: radial-gradient(circle, rgba(116, 185, 227, 0.32), transparent 62%); opacity: 0.5; }
-.s-portal-grid { position: absolute; inset: 0; background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px); background-size: 28px 28px; -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 20%, transparent 75%); mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 20%, transparent 75%); }
-.s-portal-chrome { position: absolute; top: 12px; left: 20px; display: flex; align-items: center; gap: 12px; height: 40px; }
-.s-portal-back { width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255, 255, 255, 0.08); }
-.s-portal-logo { font-family: var(--s-font); font-size: 1.15rem; font-weight: 600; letter-spacing: -0.045em; }
-.s-portal-logo span { color: var(--s-accent); }
-.s-portal-robot { position: absolute; }
-.s-portal-halo { position: absolute; inset: -30%; border-radius: 50%; background: radial-gradient(circle, rgba(232, 51, 106, 0.35), transparent 62%); filter: blur(30px); animation: s-pulse 2.4s ease-in-out infinite; }
-.s-portal-robot-el { position: relative; display: block; width: 100%; filter: drop-shadow(0 24px 40px rgba(232, 51, 106, 0.18)); }
-.s-portal-label { position: relative; margin-top: min(46vw, 260px); font-family: var(--s-serif); font-style: italic; font-size: clamp(1.5rem, 3vw, 2.2rem); color: rgba(255, 255, 255, 0.92); text-align: center; padding: 0 24px; }
-@media (max-width: 600px) { .s-portal-chrome { left: 16px; } }
+.s-portal-aura--rose { width: 50vmax; height: 50vmax; top: -26vmax; left: -18vmax; background: radial-gradient(circle, rgba(232, 51, 106, 0.16), transparent 62%); }
+.s-portal-cancel { position: absolute; top: 16px; right: 16px; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(21, 22, 26, 0.1); background: rgba(255, 255, 255, 0.85); color: #15161a; font: 500 0.82rem/1 var(--s-font); box-shadow: 0 10px 30px -18px rgba(21, 22, 26, 0.45); cursor: pointer; transition: background 0.2s, transform 0.2s; }
+.s-portal-cancel:hover { background: #fff; transform: translateY(-1px); }
+.s-portal-robot { position: absolute; pointer-events: none; }
+.s-portal-halo { position: absolute; inset: -24%; border-radius: 50%; background: radial-gradient(circle, rgba(232, 51, 106, 0.2), transparent 62%); filter: blur(30px); animation: s-pulse 2.4s ease-in-out infinite; }
+.s-portal-robot-el { position: relative; display: block; width: 100%; }
+.s-portal-label { position: relative; margin-top: min(42vw, 230px); font-family: var(--s-serif); font-style: italic; font-size: clamp(1.4rem, 2.6vw, 2rem); color: #2a2b31; text-align: center; padding: 0 24px; pointer-events: none; }
 
 /* ─── Keyframes ─── */
 @keyframes s-spin { to { transform: rotate(360deg); } }
@@ -273,8 +268,8 @@ html.dark .s-aura { opacity: 0.22; }
 }
 
 .s-app[data-receding] { pointer-events: none; user-select: none; }
-.s-app[data-receding='1'] { filter: blur(4px) saturate(0.85); transition: filter 1.8s cubic-bezier(0.22, 1, 0.36, 1); }
-.s-app[data-receding='2'] { filter: blur(16px) saturate(0.55) brightness(0.75); transition: filter 9s cubic-bezier(0.22, 1, 0.36, 1); }
+.s-app[data-receding='1'] { filter: blur(2px) saturate(0.9); transition: filter 1.8s cubic-bezier(0.22, 1, 0.36, 1); }
+.s-app[data-receding='2'] { filter: blur(5px) saturate(0.7); transition: filter 6s cubic-bezier(0.22, 1, 0.36, 1); }
 .s-app:not([data-receding]) { transition: filter 0.9s cubic-bezier(0.22, 1, 0.36, 1); }
 @media (prefers-reduced-motion: reduce) {
   .s-app[data-receding] { transition: none; }

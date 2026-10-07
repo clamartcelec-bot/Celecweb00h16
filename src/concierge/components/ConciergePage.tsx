@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSearchParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
 import { useRealtimeSession, type ToolCall, type TranscriptEvent, type ToolActivity } from '@/concierge/hooks/useRealtimeSession';
 import { ConciergeRobot, type ConciergeRobotHandle } from '@/concierge/components/ConciergeRobot';
 import { useConversationTimer } from '../hooks/useConversationTimer';
@@ -12,6 +11,8 @@ import {
   findEntries,
   loadConciergeKnowledge,
   searchCarnet,
+  normalizeText,
+  type CarnetEntry,
   type ConciergeKnowledge,
 } from '../services/knowledge';
 import { markPresentedEntries } from '../services/presence';
@@ -19,7 +20,8 @@ import { loadConciergeSettings, DEFAULT_CONCIERGE_SETTINGS, type ConciergeSettin
 import { submitConciergeLead } from '../services/lead';
 import { createConversationLog, type ConversationLog } from '../services/conversationLog';
 import { uploadConciergeFile } from '../services/upload';
-import { carnetUrlForSession, endConciergeSession, startConciergeSession } from '@/lib/conciergeSession';
+import { endConciergeSession, startConciergeSession } from '@/lib/conciergeSession';
+import { loadCompanyFacts, type CompanyFact } from '../services/companyFacts';
 import {
   CATEGORY_LABELS,
   EMPTY_CONCIERGE_DRAFT,
@@ -34,7 +36,10 @@ import {
 import { ConciergeCardStack } from './ConciergeCardStack';
 import { ActiveView } from './ConciergeActiveView';
 import { RequestPanel } from './ConciergeRequestPanel';
-import { ConnectingView, EndedView, ErrorView, IdleView, UnavailableView } from './ConciergeStageViews';
+import { ConnectingView, ErrorView, IdleView, UnavailableView } from './ConciergeStageViews';
+import { ConciergeTopbar } from './ConciergeTopbar';
+import { ConciergeFacts } from './ConciergeFacts';
+import { ConciergeLens, type LensDetail } from './ConciergeLens';
 import '../concierge.css';
 
 const PAGE_EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
@@ -61,8 +66,29 @@ function urgencyArg(value: string | undefined): RequestUrgency | undefined {
   return value && value in URGENCY_LABELS ? value as RequestUrgency : undefined;
 }
 
-function brandCardHref(name: string) {
-  return `/partners?brand=${encodeURIComponent(name)}`;
+function factCard(fact: CompanyFact): ConciergeCard {
+  return {
+    id: `fact:${fact.key}`,
+    kind: 'info',
+    infoKind: 'contact',
+    title: fact.label,
+    subtitle: '',
+    imageUrl: '',
+    points: [fact.value, fact.detail].filter(Boolean),
+  };
+}
+
+function entryCard(entry: CarnetEntry): ConciergeCard {
+  return {
+    id: entry.id,
+    kind: 'carnet',
+    title: entry.title,
+    subtitle: entry.city,
+    imageUrl: entry.image_url,
+    city: entry.city,
+    brands: entry.brands,
+    excerpt: entry.description,
+  };
 }
 
 interface ConciergePageProps {
@@ -116,6 +142,10 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
   const [messages, setMessages] = useState<ConciergeMessage[]>([]);
   const [aiReply, setAiReply] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [facts, setFacts] = useState<CompanyFact[]>([]);
+  const [pinnedFacts, setPinnedFacts] = useState<string[]>([]);
+  const [lens, setLens] = useState<LensDetail | null>(null);
+  const factsRef = useRef<CompanyFact[]>([]);
   const [composerText, setComposerText] = useState('');
   const [appointmentMode, setAppointmentMode] = useState(false);
   const [submissionState, setSubmissionState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -140,9 +170,11 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
 
   useEffect(() => {
     let active = true;
-    Promise.all([loadConciergeContext(), loadConciergeSettings(), loadConciergeKnowledge()])
-      .then(([context, loadedSettings, loadedKnowledge]) => {
+    Promise.all([loadConciergeContext(), loadConciergeSettings(), loadConciergeKnowledge(), loadCompanyFacts()])
+      .then(([context, loadedSettings, loadedKnowledge, loadedFacts]) => {
         if (!active) return;
+        factsRef.current = loadedFacts;
+        setFacts(loadedFacts);
         settingsRef.current = loadedSettings;
         knowledgeRef.current = loadedKnowledge;
         setSettings(loadedSettings);
@@ -204,7 +236,7 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
 
     fresh.forEach((card) => shownCardIdsRef.current.add(card.id));
     const shownAt = Date.now();
-    setCards((current) => [...fresh.map((card) => ({ ...card, shownAt })), ...current].slice(0, 24));
+    setCards((current) => [...current, ...fresh.map((card) => ({ ...card, shownAt }))].slice(-24));
 
     const entryIds = fresh.filter((card) => card.kind === 'carnet').map((card) => card.id);
     if (entryIds.length) void markPresentedEntries(entryIds, sessionIdRef.current);
@@ -241,11 +273,23 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
   const handleToolCall = useCallback(async (tool: ToolCall) => {
     const args = tool.arguments;
     if (!['update_client_panel', 'update_request_panel', 'search_carnet', 'show_carnet_entries',
-      'show_brand', 'show_info', 'begin_appointment_flow', 'end_appointment_flow', 'submit_request'].includes(tool.name)) {
+      'show_brand', 'show_info', 'show_fact', 'begin_appointment_flow', 'end_appointment_flow', 'submit_request'].includes(tool.name)) {
       sendFunctionResult(tool.callId, { success: false, message: 'Action inconnue.' });
       return;
     }
     logRef.current?.addEvent(tool.name, args);
+
+    if (tool.name === 'show_fact') {
+      const requested = stringArrayArg(args, 'keys', 3).map((key) => normalizeText(key).replace(/ /g, '_'));
+      const found = factsRef.current.filter((fact) => requested.includes(normalizeText(fact.key).replace(/ /g, '_')));
+      if (!found.length) {
+        sendFunctionResult(tool.callId, { success: false, message: 'Clé inconnue : utilise uniquement les clés de la FICHE SOCIÉTÉ.' });
+        return;
+      }
+      setPinnedFacts((current) => [...current.filter((key) => !found.some((fact) => fact.key === key)), ...found.map((fact) => fact.key)]);
+      sendFunctionResult(tool.callId, { success: true, message: 'Information épinglée à l’écran. Réponds à l’oral en une phrase.' });
+      return;
+    }
 
     if (tool.name === 'show_info') {
       const title = stringArg(args, 'title') ?? '';
@@ -604,6 +648,8 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
     setComposerText('');
     setUploadError(null);
     setAppointmentMode(false);
+    setPinnedFacts([]);
+    setLens(null);
     shownCardIdsRef.current.clear();
     sessionIdRef.current = startConciergeSession();
     setConversationId(sessionIdRef.current);
@@ -729,20 +775,34 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
     );
   };
 
+  const openCard = useCallback((card: ConciergeCard) => {
+    const knowledge = knowledgeRef.current;
+    const entry = card.kind === 'carnet' ? knowledge.entries.find((item) => item.id === card.id) : undefined;
+    const brand = card.kind === 'brand' ? findBrand(knowledge, card.brandName ?? card.title) ?? undefined : undefined;
+    const related = brand
+      ? knowledge.entries.filter((item) => item.brands.some((name) => normalizeText(name) === normalizeText(brand.name))).slice(0, 6)
+      : [];
+    setLens({ card, entry, brand, related });
+    logRef.current?.addEvent('card_opened', { id: card.id, title: card.title });
+    if (status === 'connected') {
+      injectSystemMessage(`INFORMATION INTERNE : le client ouvre en grand « ${card.title} » à l’écran. Ne le commente que s’il en parle.`);
+    }
+  }, [injectSystemMessage, status]);
+
+  const openFact = useCallback((fact: CompanyFact) => openCard(factCard(fact)), [openCard]);
+  const openEntry = useCallback((entry: CarnetEntry) => openCard(entryCard(entry)), [openCard]);
+
+  const askAbout = (card: ConciergeCard) => {
+    setLens(null);
+    if (status === 'connected') sendUserText(`Parle-moi de « ${card.title} », que je regarde à l’écran.`);
+  };
+
   const inSession = status === 'connected' || status === 'ended';
   const showRequestPanel = appointmentMode || submissionState !== 'idle';
-  const flow = useMemo(() => {
-    if (appointmentMode || !cards.length) return null;
-    return (
-      <ConciergeCardStack
-        cards={cards}
-        ended={status === 'ended'}
-        detailHrefFor={(card) => card.kind === 'carnet'
-          ? carnetUrlForSession(sessionIdRef.current)
-          : brandCardHref(card.brandName ?? card.title)}
-      />
-    );
-  }, [appointmentMode, cards, status]);
+  const shownFacts = useMemo(
+    () => pinnedFacts.map((key) => facts.find((fact) => fact.key === key)).filter((fact): fact is CompanyFact => Boolean(fact)),
+    [facts, pinnedFacts],
+  );
 
   const phase: 'unavailable' | 'idle' | 'connecting' | 'error' | 'session' =
     status === 'idle' ? (settings.enabled ? 'idle' : 'unavailable')
@@ -750,10 +810,10 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
         : status === 'error' ? 'error' : 'session';
 
   const statusLabel = status === 'connected'
-    ? isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Vous parlez…'
-      : isResponding || toolActivity?.phase === 'started' ? 'Je m’en occupe…' : 'À l’écoute'
+    ? isAssistantSpeaking ? 'CELEC vous répond' : isUserSpeaking ? 'Je vous écoute…'
+      : isResponding || toolActivity?.phase === 'started' ? 'Je m’en occupe…' : 'À vous, je vous écoute'
     : status === 'requesting-mic' || status === 'connecting' ? 'Je me prépare…'
-      : status === 'error' ? 'Connexion à réessayer' : status === 'ended' ? 'À bientôt !' : 'Bonjour !';
+      : status === 'error' ? 'Connexion à réessayer' : status === 'ended' ? 'Merci pour votre appel. À bientôt !' : 'Bonjour, je suis votre concierge';
 
   return (
     <motion.div
@@ -764,8 +824,8 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
       aria-label={overlay ? 'Concierge CELEC' : undefined}
       initial={overlay ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.6, ease: PAGE_EASE } }}
-      transition={{ duration: 0.8, ease: PAGE_EASE }}
+      exit={{ opacity: 0, transition: { duration: 0.5, ease: PAGE_EASE } }}
+      transition={{ duration: 0.6, ease: PAGE_EASE }}
     >
       <div className="concierge-backdrop" aria-hidden="true">
         <span className="concierge-aura concierge-aura--rose" />
@@ -774,62 +834,23 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
         <span className="concierge-grid" />
       </div>
 
-      <header className="concierge-header">
-        <motion.button
-          onClick={handleGoBack}
-          className="concierge-back"
-          aria-label="Retour"
-          whileHover={{ x: -2 }}
-          whileTap={{ scale: 0.92 }}
-        >
-          <ArrowLeft size={18} />
-        </motion.button>
-        <span className="concierge-logo">CELEC<span>.</span></span>
-        <div className="concierge-header-spacer" />
-        <AnimatePresence>
-          {status === 'connected' && (
-            <motion.span
-              className={`concierge-timer ${timer.warningLevel !== 'none' ? 'concierge-timer--warn' : ''}`}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-            >
-              <span className="concierge-live-dot" />
-              {timer.formatted}
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </header>
+      <ConciergeTopbar
+        robot={(
+          <ConciergeRobot ref={robotRef} status={status}
+            isUserSpeaking={isUserSpeaking} isAssistantSpeaking={isAssistantSpeaking}
+            isResponding={isResponding} toolActivity={toolActivity} />
+        )}
+        speech={status === 'connected' ? aiReply : ''}
+        statusLabel={statusLabel}
+        speaking={isAssistantSpeaking}
+        timer={status === 'connected' ? timer : null}
+        ended={status === 'ended'}
+        onResume={handleResume}
+        onRestart={() => handleStart()}
+        onClose={handleGoBack}
+      />
 
-      <div className="concierge-companion">
-        <ConciergeRobot ref={robotRef} status={status}
-          isUserSpeaking={isUserSpeaking} isAssistantSpeaking={isAssistantSpeaking}
-          isResponding={isResponding} toolActivity={toolActivity} />
-        <motion.div
-          className="concierge-companion-caption"
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.6, delay: 0.2, ease: PAGE_EASE }}
-        >
-          <span className="concierge-companion-name">Votre concierge CELEC</span>
-          <div className="concierge-status-row" role="status">
-            <span className={`concierge-status-dot concierge-status-dot--${status}`} />
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.span
-                key={statusLabel}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.2 }}
-              >
-                {statusLabel}
-              </motion.span>
-            </AnimatePresence>
-          </div>
-        </motion.div>
-      </div>
-
-      <main className={`concierge-main ${inSession && (showRequestPanel || cards.length > 0) ? 'concierge-main--flow' : ''}`}>
+      <main className={`concierge-main ${phase === 'session' ? 'concierge-main--session' : ''}`}>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={phase}
@@ -849,53 +870,59 @@ export function ConciergePage({ overlay = false, onClose, onLiveChange }: Concie
             {phase === 'error' && <ErrorView error={error} onRetry={() => handleStart()} />}
 
             {phase === 'session' && (
-              <>
-                <div className={`concierge-session-layout ${showRequestPanel ? '' : 'concierge-session-layout--solo'}`}>
-                  {status === 'connected' ? (
-                    <ActiveView
-                      timer={timer}
-                      compact={cards.length > 0 || appointmentMode}
-                      isMuted={isMuted}
-                      isUserSpeaking={isUserSpeaking}
-                      isAssistantSpeaking={isAssistantSpeaking}
-                      localStream={localStream}
-                      remoteStream={remoteStream}
-                      onAudioAmplitude={handleAudioAmplitude}
-                      aiReply={aiReply}
-                      messages={messages}
-                      historyOpen={historyOpen}
-                      onToggleHistory={() => setHistoryOpen((value) => !value)}
-                      composerText={composerText}
-                      onComposerChange={setComposerText}
-                      onComposerKeyDown={handleComposerKeyDown}
-                      onSendMessage={handleSendMessage}
-                      onQuickAction={sendUserText}
-                      onToggleMute={toggleMute}
-                      onEnd={handleEnd}
-                    />
-                  ) : (
-                    <EndedView draft={draft} onRestart={() => handleStart()} onResume={handleResume} onBack={handleGoBack} />
-                  )}
-                  {showRequestPanel && (
-                    <RequestPanel
-                      draft={draft}
-                      submissionState={submissionState}
-                      uploading={uploading}
-                      uploadError={uploadError}
-                      onFilePick={handleFilePick}
-                      onRemoveAttachment={removeAttachment}
-                      onSubmit={handleManualSubmit}
-                      onExit={status === 'connected' ? handleExitAppointment : undefined}
-                    />
+              <div className={`concierge-stage ${showRequestPanel ? 'concierge-stage--panel' : ''}`}>
+                <div className="concierge-stage-main">
+                  <ConciergeFacts facts={shownFacts} latestKey={pinnedFacts[pinnedFacts.length - 1] ?? null} onOpen={openFact} />
+                  {!appointmentMode && cards.length > 0 && <ConciergeCardStack cards={cards} onOpen={openCard} />}
+                  {!appointmentMode && !cards.length && !shownFacts.length && (
+                    <p className="concierge-stage-hint">
+                      {status === 'ended'
+                        ? 'L’appel est terminé. Vous pouvez le reprendre en haut à droite.'
+                        : 'Ce que je vous montre s’affichera ici.'}
+                    </p>
                   )}
                 </div>
-                {flow}
-              </>
+                {showRequestPanel && (
+                  <RequestPanel
+                    draft={draft}
+                    submissionState={submissionState}
+                    uploading={uploading}
+                    uploadError={uploadError}
+                    onFilePick={handleFilePick}
+                    onRemoveAttachment={removeAttachment}
+                    onSubmit={handleManualSubmit}
+                    onExit={status === 'connected' ? handleExitAppointment : undefined}
+                  />
+                )}
+              </div>
             )}
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {status === 'connected' && inSession && (
+        <ActiveView
+          timer={timer}
+          isMuted={isMuted}
+          isUserSpeaking={isUserSpeaking}
+          isAssistantSpeaking={isAssistantSpeaking}
+          localStream={localStream}
+          remoteStream={remoteStream}
+          onAudioAmplitude={handleAudioAmplitude}
+          messages={messages}
+          historyOpen={historyOpen}
+          onToggleHistory={() => setHistoryOpen((value) => !value)}
+          composerText={composerText}
+          onComposerChange={setComposerText}
+          onComposerKeyDown={handleComposerKeyDown}
+          onSendMessage={handleSendMessage}
+          onQuickAction={sendUserText}
+          onToggleMute={toggleMute}
+          onEnd={handleEnd}
+        />
+      )}
+
+      <ConciergeLens detail={lens} onClose={() => setLens(null)} onAsk={askAbout} onOpenEntry={openEntry} />
     </motion.div>
   );
 }
-

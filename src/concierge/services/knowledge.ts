@@ -7,6 +7,7 @@ export interface CarnetEntry {
   description: string;
   brands: string[];
   image_url: string;
+  images: string[];
   keywords: string;
 }
 
@@ -80,6 +81,7 @@ export async function loadConciergeKnowledge(): Promise<ConciergeKnowledge> {
       description,
       brands,
       image_url: image,
+      images: Array.from(new Set([image, ...(row.photo_images ?? []).map((photo) => photo.image_url)].filter(Boolean))).slice(0, 8),
       keywords: normalizeText([row.title, row.city, brands.join(' '), description].join(' ')),
     };
   });
@@ -204,6 +206,7 @@ export async function findEntryForSession(sessionId: string): Promise<CarnetEntr
     description: String(row.description ?? ''),
     brands: row.detected_brands ?? [],
     image_url: row.image_url || row.photo_images?.[0]?.image_url || '',
+    images: [row.image_url, ...(row.photo_images ?? []).map((photo) => photo.image_url)].filter(Boolean),
     keywords: '',
   };
 }

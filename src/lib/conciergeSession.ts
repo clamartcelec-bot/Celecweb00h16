@@ -29,7 +29,3 @@ export function endConciergeSession(id: string | null): void {
   if (id) window.sessionStorage.setItem(`${SESSION_KEY}.last`, id);
 }
 
-export function carnetUrlForSession(id: string | null): string {
-  if (!id) return '/carnet';
-  return `/carnet?${CONCIERGE_SESSION_PARAM}=${encodeURIComponent(id)}`;
-}

@@ -1,6 +1,6 @@
 import { motion, useReducedMotion } from 'motion/react';
-import { ArrowLeft, Loader2, Mic, MicOff, Phone, RotateCcw, ShieldCheck } from 'lucide-react';
-import type { ConciergeDraft, RequestCategory } from '../types';
+import { Loader2, Mic, MicOff, RotateCcw, ShieldCheck } from 'lucide-react';
+import type { RequestCategory } from '../types';
 
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
@@ -137,36 +137,6 @@ export function ErrorView({ error, onRetry }: { error: string | null; onRetry: (
         <RotateCcw size={18} />
         Réessayer
       </motion.button>
-    </div>
-  );
-}
-
-export function EndedView({ draft, onRestart, onResume, onBack }: { draft: ConciergeDraft; onRestart: () => void; onResume: () => void; onBack: () => void }) {
-  const rise = useRise();
-  return (
-    <div className="concierge-ended">
-      <motion.h2 className="concierge-title concierge-title--md" {...rise(0)}>
-        Merci pour <em>votre appel.</em>
-      </motion.h2>
-      <motion.p className="concierge-lead" {...rise(0.1)}>
-        {draft.summary
-          ? 'Votre fiche reste disponible sur cette page. Vérifiez que la transmission a bien été confirmée pendant l’appel.'
-          : "L'équipe CELEC reste disponible si vous souhaitez préciser votre demande."}
-      </motion.p>
-      <motion.div className="concierge-ended-actions" {...rise(0.2)}>
-        <button onClick={onResume} className="concierge-primary-btn">
-          <Phone size={18} />
-          Reprendre l’appel
-        </button>
-        <button onClick={onRestart} className="concierge-ghost-btn">
-          <RotateCcw size={18} />
-          Nouvel appel
-        </button>
-        <button onClick={onBack} className="concierge-text-btn">
-          <ArrowLeft size={16} />
-          Retour à l'accueil
-        </button>
-      </motion.div>
     </div>
   );
 }

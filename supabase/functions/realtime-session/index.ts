@@ -32,7 +32,13 @@ async function loadConciergeSettings(): Promise<ConciergeSettings | null> {
       console.error("CONCIERGE_SETTINGS_ERROR", error.message);
       return null;
     }
-    return (data as ConciergeSettings | null) ?? null;
+    const { data: facts, error: factsError } = await supabase
+      .from("company_facts")
+      .select("key, label, value, detail")
+      .eq("published", true)
+      .order("position", { ascending: true });
+    if (factsError) console.error("COMPANY_FACTS_ERROR", factsError.message);
+    return { ...((data as ConciergeSettings | null) ?? {}), facts: facts ?? [] };
   } catch (err) {
     console.error("CONCIERGE_SETTINGS_FAILED", (err as Error).message);
     return null;
