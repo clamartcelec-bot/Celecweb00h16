@@ -271,3 +271,11 @@ html.dark .s-aura { opacity: 0.22; }
 @media (prefers-reduced-motion: reduce) {
   .s-app *, .s-app *::before, .s-app *::after, .s-portal * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
+
+.s-app[data-receding] { pointer-events: none; user-select: none; }
+.s-app[data-receding='1'] { filter: blur(4px) saturate(0.85); transition: filter 1.8s cubic-bezier(0.22, 1, 0.36, 1); }
+.s-app[data-receding='2'] { filter: blur(16px) saturate(0.55) brightness(0.75); transition: filter 9s cubic-bezier(0.22, 1, 0.36, 1); }
+.s-app:not([data-receding]) { transition: filter 0.9s cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .s-app[data-receding] { transition: none; }
+}

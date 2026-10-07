@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useNavigate } from 'react-router-dom';
 import { Phone } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { LoginModal } from '@/components/LoginModal';
@@ -20,6 +19,7 @@ import { AccountMenu } from '@/site/components/AccountMenu';
 import { CarnetShowcase, MapSection, PartnersStrip, ServicesSection, StatsBand, TeamSection } from '@/site/components/HomeSections';
 import { ContactSection } from '@/site/components/ContactSection';
 import { ConciergeTransition } from '@/site/components/ConciergeTransition';
+import { ConciergePage } from '@/concierge/components/ConciergePage';
 import { EntrySheet } from '@/site/components/EntrySheet';
 import { BrandSheet } from '@/site/components/BrandSheet';
 import { CallbackSheet } from '@/site/components/CallbackSheet';
@@ -67,13 +67,14 @@ function App() {
   const [brandReturn, setBrandReturn] = useState<string | null>(null);
   const [conciergeReturn, setConciergeReturn] = useState<string | null>(null);
   const [portal, setPortal] = useState<{ x: number; y: number } | null>(null);
+  const [conciergeOpen, setConciergeOpen] = useState(false);
+  const [conciergeLive, setConciergeLive] = useState(false);
   const pendingBrandRef = useRef<string | null>(null);
   const pendingConciergeEntry = useRef(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [clientSpace, setClientSpace] = useState<'overview' | 'requests' | null>(null);
   const t = copy[lang];
-  const navigate = useNavigate();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -250,8 +251,11 @@ function App() {
     return <AdminDashboard onClose={() => go('home')} />;
   }
 
+  const receding = conciergeOpen ? (conciergeLive ? '2' : '1') : undefined;
+
   return (
-    <div className="s-app">
+    <>
+    <div className="s-app" data-receding={receding} aria-hidden={conciergeOpen || undefined}>
       <SiteHeader
         t={t}
         lang={lang}
@@ -412,17 +416,29 @@ function App() {
       {clientSpace && (
         <ClientSpace initialTab={clientSpace} onClose={() => setClientSpace(null)} onLogout={() => { setUserEmail(null); setProfile(null); }} />
       )}
-
-      <AnimatePresence>
-        {portal && (
-          <ConciergeTransition
-            origin={portal}
-            label={t.robotEntering}
-            onDone={() => navigate('/concierge?start=1')}
-          />
-        )}
-      </AnimatePresence>
     </div>
+
+    <AnimatePresence>
+      {conciergeOpen && (
+        <ConciergePage
+          key="concierge"
+          overlay
+          onClose={() => { setConciergeOpen(false); setConciergeLive(false); }}
+          onLiveChange={setConciergeLive}
+        />
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {portal && (
+        <ConciergeTransition
+          origin={portal}
+          label={t.robotEntering}
+          onDone={() => { setConciergeOpen(true); setPortal(null); }}
+        />
+      )}
+    </AnimatePresence>
+    </>
   );
 }
 

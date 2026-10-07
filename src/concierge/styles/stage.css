@@ -219,3 +219,20 @@ robot-majordome.concierge-robot {
 @media (prefers-reduced-motion: reduce) {
   .concierge-page *, .concierge-page *::before, .concierge-page *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
+
+/* Overlay over the website: the site recedes behind the conversation */
+.concierge-page--overlay {
+  position: fixed; inset: 0; z-index: 150; min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  background: transparent;
+}
+.concierge-page--overlay .concierge-backdrop {
+  background: radial-gradient(ellipse 90% 70% at 30% 10%, rgba(7, 8, 11, 0.5), rgba(7, 8, 11, 0.8) 75%);
+}
+.concierge-page--overlay .concierge-backdrop::before {
+  content: ''; position: absolute; inset: 0; background: rgba(7, 8, 11, 0.45);
+  opacity: 0; transition: opacity 7s var(--c-ease);
+}
+.concierge-page--overlay[data-status='connected'] .concierge-backdrop::before,
+.concierge-page--overlay[data-status='ended'] .concierge-backdrop::before { opacity: 1; }
+.concierge-page--overlay .concierge-grid { opacity: 0.5; }

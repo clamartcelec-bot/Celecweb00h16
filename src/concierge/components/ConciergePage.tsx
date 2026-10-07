@@ -17,6 +17,7 @@ import {
 import { markPresentedEntries } from '../services/presence';
 import { loadConciergeSettings, DEFAULT_CONCIERGE_SETTINGS, type ConciergeSettings } from '../services/config';
 import { submitConciergeLead } from '../services/lead';
+import { createConversationLog, type ConversationLog } from '../services/conversationLog';
 import { uploadConciergeFile } from '../services/upload';
 import { carnetUrlForSession, endConciergeSession, startConciergeSession } from '@/lib/conciergeSession';
 import {
@@ -64,7 +65,13 @@ function brandCardHref(name: string) {
   return `/partners?brand=${encodeURIComponent(name)}`;
 }
 
-export function ConciergePage() {
+interface ConciergePageProps {
+  overlay?: boolean;
+  onClose?: () => void;
+  onLiveChange?: (live: boolean) => void;
+}
+
+export function ConciergePage({ overlay = false, onClose, onLiveChange }: ConciergePageProps = {}) {
   const [conversationId, setConversationId] = useState<string | null>(null);
 
   const {
@@ -127,6 +134,9 @@ export function ConciergePage() {
   const shownCardIdsRef = useRef<Set<string>>(new Set());
   const transcriptRef = useRef<ConciergeMessage[]>([]);
   const isResumingRef = useRef(false);
+  const logRef = useRef<ConversationLog | null>(null);
+
+  useEffect(() => () => logRef.current?.end('page_left'), []);
 
   useEffect(() => {
     let active = true;
@@ -183,6 +193,7 @@ export function ConciergePage() {
       }
 
       draftRef.current = next;
+      logRef.current?.setDraft(next);
       return next;
     });
   }, []);
@@ -192,7 +203,8 @@ export function ConciergePage() {
     if (!fresh.length) return;
 
     fresh.forEach((card) => shownCardIdsRef.current.add(card.id));
-    setCards((current) => [...fresh, ...current].slice(0, 24));
+    const shownAt = Date.now();
+    setCards((current) => [...fresh.map((card) => ({ ...card, shownAt })), ...current].slice(0, 24));
 
     const entryIds = fresh.filter((card) => card.kind === 'carnet').map((card) => card.id);
     if (entryIds.length) void markPresentedEntries(entryIds, sessionIdRef.current);
@@ -204,6 +216,7 @@ export function ConciergePage() {
       // la phrase en cours que si on a bien un texte à afficher.
       const next = event.fullText || event.text;
       if (next) setAiReply(next);
+      if (event.final) logRef.current?.addTurn('assistant', event.text);
       return;
     }
 
@@ -212,6 +225,7 @@ export function ConciergePage() {
       return;
     }
 
+    logRef.current?.addTurn('user', event.text);
     setMessages((current) => {
       const next = [...current, {
         id: `user-${current.length}-${Date.now()}`,
@@ -227,8 +241,31 @@ export function ConciergePage() {
   const handleToolCall = useCallback(async (tool: ToolCall) => {
     const args = tool.arguments;
     if (!['update_client_panel', 'update_request_panel', 'search_carnet', 'show_carnet_entries',
-      'show_brand', 'begin_appointment_flow', 'end_appointment_flow', 'submit_request'].includes(tool.name)) {
+      'show_brand', 'show_info', 'begin_appointment_flow', 'end_appointment_flow', 'submit_request'].includes(tool.name)) {
       sendFunctionResult(tool.callId, { success: false, message: 'Action inconnue.' });
+      return;
+    }
+    logRef.current?.addEvent(tool.name, args);
+
+    if (tool.name === 'show_info') {
+      const title = stringArg(args, 'title') ?? '';
+      const points = stringArrayArg(args, 'points', 5).map((point) => point.trim()).filter(Boolean);
+      const kind = stringArg(args, 'kind');
+      if (!title || !points.length) {
+        sendFunctionResult(tool.callId, { success: false, message: 'Encart vide : donne un titre et au moins un point.' });
+        return;
+      }
+      pushCards([{
+        id: `info:${title.toLowerCase()}`,
+        kind: 'info',
+        title,
+        subtitle: '',
+        imageUrl: '',
+        infoKind: kind === 'steps' || kind === 'checklist' || kind === 'contact' ? kind : 'info',
+        points,
+        note: stringArg(args, 'note'),
+      }]);
+      sendFunctionResult(tool.callId, { success: true, message: 'Encart affiché. Commente-le brièvement à l’oral, sans le lire mot pour mot.' });
       return;
     }
 
@@ -320,6 +357,9 @@ export function ConciergePage() {
         title: entry.title,
         subtitle: [entry.city, entry.brands.slice(0, 2).join(' · ')].filter(Boolean).join(' — '),
         imageUrl: entry.image_url,
+        city: entry.city,
+        brands: entry.brands.slice(0, 3),
+        excerpt: entry.description.slice(0, 160),
       })));
 
       sendFunctionResult(tool.callId, {
@@ -366,6 +406,7 @@ export function ConciergePage() {
         subtitle: brand.partnerName ? 'Partenaire CELEC' : `${brand.count} intervention(s) au carnet`,
         imageUrl: '',
         brandName: brand.name,
+        excerpt: brand.partnerName ? `Partenaire officiel · ${brand.count} intervention(s) au carnet` : undefined,
       }]);
 
       sendFunctionResult(tool.callId, {
@@ -458,7 +499,7 @@ export function ConciergePage() {
   const sendLead = useCallback(async (source: 'concierge' | 'callback') => {
     const current = draftRef.current;
     if (!isDraftSubmittable(current)) {
-      throw new Error('Le nom, le téléphone et l’objet de l’appel sont nécessaires.');
+      throw new Error('Il manque un numéro de téléphone valide. Demande-le simplement au client.');
     }
 
     setSubmissionState('sending');
@@ -466,6 +507,8 @@ export function ConciergePage() {
 
     try {
       const result = await submitConciergeLead(current, source);
+      logRef.current?.setRequestId(result.requestId);
+      logRef.current?.addEvent('request_sent', { source, request_id: result.requestId, telegram: result.telegram });
       hasSubmittedRef.current = true;
       sentSnapshotRef.current = [
         (current.lastName.trim() || current.firstName.trim()),
@@ -536,10 +579,14 @@ export function ConciergePage() {
   const handleEnd = useCallback(() => {
     isResumingRef.current = false;
     stop();
+    logRef.current?.end('hung_up');
     endConciergeSession(sessionIdRef.current);
   }, [stop]);
 
-  const onCutoff = useCallback(() => handleEnd(), [handleEnd]);
+  const onCutoff = useCallback(() => {
+    logRef.current?.end('time_limit');
+    handleEnd();
+  }, [handleEnd]);
   const timer = useConversationTimer(status === 'connected', onApproachingEnd, onCutoff);
 
   useEffect(() => {
@@ -560,6 +607,9 @@ export function ConciergePage() {
     shownCardIdsRef.current.clear();
     sessionIdRef.current = startConciergeSession();
     setConversationId(sessionIdRef.current);
+    logRef.current?.end('restarted');
+    logRef.current = createConversationLog(sessionIdRef.current);
+    logRef.current?.addEvent('session_started', { topic: topic?.label });
     const initialDraft: ConciergeDraft = {
       ...EMPTY_CONCIERGE_DRAFT,
       firstName: clientContext?.firstName || '',
@@ -568,33 +618,54 @@ export function ConciergePage() {
     };
     draftRef.current = initialDraft;
     setDraft(initialDraft);
+    logRef.current?.setDraft(initialDraft);
     start();
   };
 
   const [searchParams, setSearchParams] = useSearchParams();
   const autoStartedRef = useRef(false);
-  const wantsAutoStart = searchParams.get('start') === '1';
+  const startParam = searchParams.get('start') === '1';
+  const wantsAutoStart = overlay || startParam;
 
   // Arrivée depuis le robot de l’accueil : on décroche dès que le carnet est prêt.
   useEffect(() => {
     if (!wantsAutoStart || autoStartedRef.current || !knowledgeReady) return;
     autoStartedRef.current = true;
-    setSearchParams((params) => {
-      params.delete('start');
-      return params;
-    }, { replace: true });
+    if (startParam) {
+      setSearchParams((params) => {
+        params.delete('start');
+        return params;
+      }, { replace: true });
+    }
     if (settings.enabled && status === 'idle') handleStart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantsAutoStart, knowledgeReady, settings.enabled, status]);
 
   const handleGoBack = () => {
     handleEnd();
-    window.location.href = '/';
+    if (onClose) onClose();
+    else window.location.href = '/';
   };
+
+  useEffect(() => {
+    onLiveChange?.(status === 'connected');
+  }, [onLiveChange, status]);
+
+  useEffect(() => {
+    if (!overlay) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [overlay]);
 
   const handleResume = () => {
     hasSubmittedRef.current = submissionState === 'sent';
     isResumingRef.current = true;
+    if (sessionIdRef.current) {
+      logRef.current = createConversationLog(`${sessionIdRef.current}-suite-${Date.now().toString(36)}`);
+      logRef.current?.setDraft(draftRef.current);
+      logRef.current?.addEvent('session_resumed', { previous: sessionIdRef.current });
+    }
     start();
   };
 
@@ -602,6 +673,7 @@ export function ConciergePage() {
     const trimmed = text.trim();
     if (!trimmed) return;
     sendUserText(trimmed);
+    logRef.current?.addTurn('user', trimmed);
     setComposerText('');
   };
 
@@ -635,15 +707,15 @@ export function ConciergePage() {
 
   const handleManualSubmit = async () => {
     if (!isDraftSubmittable(draftRef.current)) {
-      setUploadError('Le nom, le téléphone et l’objet de l’appel sont nécessaires.');
+      setUploadError('Indiquez simplement un numéro de téléphone valide.');
       return;
     }
 
     try {
       await sendLead(appointmentMode ? 'concierge' : 'callback');
-      const name = draftRef.current.lastName.trim() || draftRef.current.firstName.trim();
+      const name = draftRef.current.lastName.trim() || draftRef.current.firstName.trim() || 'ce client';
       sendUserText(
-        `Le client vient d’appuyer sur le bouton « Envoyer la demande » de la fiche de prise de rendez-vous. La demande de ${name} vient d’être transmise à l’équipe CELEC avec les informations à jour. Confirme-le chaleureusement à l’oral, sans redemander aucune information.`,
+        `Le client vient d’appuyer sur le bouton « Envoyer la demande » de la fiche de rappel. La demande de ${name} vient d’être transmise à l’équipe CELEC avec les informations à jour. Confirme-le chaleureusement à l’oral, sans redemander aucune information.`,
       );
     } catch {
       // l’état de transmission reflète déjà l’échec à l’écran
@@ -684,7 +756,17 @@ export function ConciergePage() {
       : status === 'error' ? 'Connexion à réessayer' : status === 'ended' ? 'À bientôt !' : 'Bonjour !';
 
   return (
-    <div className="concierge-page" data-status={status}>
+    <motion.div
+      className={`concierge-page ${overlay ? 'concierge-page--overlay' : ''}`}
+      data-status={status}
+      role={overlay ? 'dialog' : undefined}
+      aria-modal={overlay || undefined}
+      aria-label={overlay ? 'Concierge CELEC' : undefined}
+      initial={overlay ? { opacity: 0 } : false}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: { duration: 0.6, ease: PAGE_EASE } }}
+      transition={{ duration: 0.8, ease: PAGE_EASE }}
+    >
       <div className="concierge-backdrop" aria-hidden="true">
         <span className="concierge-aura concierge-aura--rose" />
         <span className="concierge-aura concierge-aura--ion" />
@@ -813,7 +895,7 @@ export function ConciergePage() {
           </motion.div>
         </AnimatePresence>
       </main>
-    </div>
+    </motion.div>
   );
 }
 

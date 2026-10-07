@@ -7,6 +7,7 @@ import {
   type ConciergeSettings,
 } from '@/concierge/services/config';
 import { loadConciergeKnowledge } from '@/concierge/services/knowledge';
+import { ConciergeArchive } from '@/components/ConciergeArchive';
 
 const fmtDate = (value: string) =>
   new Date(value).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -207,6 +208,8 @@ export function ConciergeTab() {
       )}
 
       <p className="ai-settings-note"><Settings size={12} /> Les modifications prennent effet au prochain appel du concierge.</p>
+
+      <ConciergeArchive />
     </div>
   );
 }

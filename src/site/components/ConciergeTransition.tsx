@@ -34,6 +34,7 @@ export function ConciergeTransition({ origin, label, onDone }: { origin: { x: nu
       className="s-portal"
       initial={{ clipPath: `circle(0px at ${origin.x}px ${origin.y}px)` }}
       animate={{ clipPath: `circle(150vmax at ${origin.x}px ${origin.y}px)` }}
+      exit={{ opacity: 0, transition: { duration: reduce ? 0.2 : 0.9, ease: EASE_SOFT } }}
       transition={{ duration: reduce ? 0 : 1, ease: EASE_SOFT }}
       aria-live="polite"
     >

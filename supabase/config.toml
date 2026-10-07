@@ -21,3 +21,6 @@ verify_jwt = false
 
 [functions.concierge-presence]
 verify_jwt = false
+
+[functions.concierge-log]
+verify_jwt = false

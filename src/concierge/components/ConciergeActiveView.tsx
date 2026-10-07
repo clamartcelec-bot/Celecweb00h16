@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle, ChevronDown, History, Mic, MicOff, PhoneOff, Send } from 'lucide-react';
 import { useAudioLevels } from '../hooks/useAudioLevels';
@@ -65,13 +66,15 @@ export function ActiveView({
   onToggleMute,
   onEnd,
 }: ActiveViewProps) {
-  const { inputLevels, outputLevels } = useAudioLevels(
+  const { inputLevels } = useAudioLevels(
     isMuted ? null : localStream,
     remoteStream,
     onAudioAmplitude,
   );
   const showQuickPrompts = messages.length <= 1 && !aiReply;
   const speaker = isAssistantSpeaking ? 'celec' : isUserSpeaking && !isMuted ? 'user' : 'none';
+  const micLevel = isMuted ? 0 : Math.min(1, inputLevels.reduce((sum, level) => sum + level, 0) / Math.max(1, inputLevels.length) * 2.4);
+  const timeline = useSpeechTimeline(isUserSpeaking && !isMuted, isAssistantSpeaking);
 
   return (
     <div className={`concierge-active ${compact ? 'concierge-active--compact' : ''}`}>
@@ -89,27 +92,28 @@ export function ActiveView({
         )}
       </AnimatePresence>
 
-      <div className="concierge-stage" data-speaker={speaker}>
-        <div className="concierge-audio-viz">
-          <AudioBars label="Vous" variant="user" levels={inputLevels} active={isUserSpeaking && !isMuted} />
-          <span className="concierge-viz-sep" aria-hidden="true" />
-          <AudioBars label="CELEC" variant="celec" levels={outputLevels} active={isAssistantSpeaking} />
+      <div className="concierge-caption" data-speaker={speaker} aria-live="polite">
+        <span className="concierge-caption-label">
+          <span className={`concierge-speech-dot ${isAssistantSpeaking ? 'concierge-speech-dot--on' : ''}`} />
+          CELEC
+        </span>
+        <div className="concierge-caption-window">
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.p
+              key={aiReply ? 'live' : 'waiting'}
+              className={`concierge-caption-text ${aiReply ? 'concierge-caption-text--live' : ''}`}
+              initial={{ opacity: 0, filter: 'blur(6px)' }}
+              animate={{ opacity: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, filter: 'blur(6px)' }}
+              transition={{ duration: 0.45, ease: EASE }}
+            >
+              {aiReply || 'Je vous écoute. Posez votre question, je vous montre ce que nous avons.'}
+            </motion.p>
+          </AnimatePresence>
         </div>
-
-        <motion.div
-          className="concierge-speech-card"
-          layout
-          transition={{ layout: { duration: 0.5, ease: EASE } }}
-        >
-          <span className="concierge-speech-label">
-            <span className={`concierge-speech-dot ${isAssistantSpeaking ? 'concierge-speech-dot--on' : ''}`} />
-            CELEC dit
-          </span>
-          <p className={`concierge-speech-text ${aiReply ? 'concierge-speech-text--live' : ''}`}>
-            {aiReply || 'Le concierge prend la parole…'}
-          </p>
-        </motion.div>
       </div>
+
+      <div className="concierge-active-spacer" aria-hidden="true" />
 
       <div className="concierge-dock">
         {messages.length > 0 && (
@@ -185,8 +189,11 @@ export function ActiveView({
           </div>
 
           <div className="concierge-controls">
+            <SpeechTimeline cells={timeline} muted={isMuted} />
             <motion.button
               onClick={onToggleMute}
+              style={{ '--mic-level': micLevel } as React.CSSProperties}
+              data-speaking={isUserSpeaking && !isMuted ? 'true' : undefined}
               className={`concierge-mic-btn ${isMuted ? 'concierge-mic-btn--muted' : 'concierge-mic-btn--active'}`}
               aria-label={isMuted ? 'Réactiver le micro' : 'Couper le micro'}
               aria-pressed={isMuted}
@@ -205,29 +212,32 @@ export function ActiveView({
   );
 }
 
-function AudioBars({
-  label,
-  variant,
-  levels,
-  active,
-}: {
-  label: string;
-  variant: 'user' | 'celec';
-  levels: number[];
-  active: boolean;
-}) {
+type SpeechCell = 'user' | 'celec' | 'quiet';
+
+const TIMELINE_CELLS = 28;
+const TIMELINE_STEP_MS = 450;
+
+function useSpeechTimeline(userSpeaking: boolean, assistantSpeaking: boolean) {
+  const [cells, setCells] = useState<SpeechCell[]>(() => Array(TIMELINE_CELLS).fill('quiet'));
+  const currentRef = useRef<SpeechCell>('quiet');
+  currentRef.current = assistantSpeaking ? 'celec' : userSpeaking ? 'user' : 'quiet';
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setCells((previous) => [...previous.slice(1), currentRef.current]);
+    }, TIMELINE_STEP_MS);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return cells;
+}
+
+function SpeechTimeline({ cells, muted }: { cells: SpeechCell[]; muted: boolean }) {
   return (
-    <div className={`concierge-viz-column concierge-viz-column--${variant}`}>
-      <span className="concierge-viz-label">{label}</span>
-      <div className={`concierge-viz-bars ${active ? 'concierge-viz-bars--active' : ''}`}>
-        {levels.map((level, index) => (
-          <div
-            key={index}
-            className={`concierge-viz-bar concierge-viz-bar--${variant}`}
-            style={{ height: `${Math.max(6, Math.round(level * 72))}px` }}
-          />
-        ))}
-      </div>
+    <div className={`concierge-timeline ${muted ? 'concierge-timeline--muted' : ''}`} aria-hidden="true" title="Temps de parole : vous en bleu, CELEC en rose">
+      {cells.map((cell, index) => (
+        <span key={index} className={`concierge-timeline-cell concierge-timeline-cell--${cell}`} />
+      ))}
     </div>
   );
 }

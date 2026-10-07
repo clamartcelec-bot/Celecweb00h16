@@ -3,11 +3,18 @@ export type RequestUrgency = 'normale' | 'rapide' | 'urgente';
 
 export interface ConciergeCard {
   id: string;
-  kind: 'carnet' | 'brand';
+  kind: 'carnet' | 'brand' | 'info';
   title: string;
   subtitle: string;
   imageUrl: string;
   brandName?: string;
+  city?: string;
+  brands?: string[];
+  excerpt?: string;
+  infoKind?: 'info' | 'steps' | 'checklist' | 'contact';
+  points?: string[];
+  note?: string;
+  shownAt?: number;
 }
 
 export interface ConciergeDraft {
@@ -56,9 +63,7 @@ export const URGENCY_LABELS: Record<RequestUrgency, string> = {
 };
 
 export function isDraftSubmittable(draft: ConciergeDraft) {
-  const name = draft.lastName.trim() || draft.firstName.trim();
-  const phoneDigits = draft.phone.replace(/\D/g, '');
-  return Boolean(name) && phoneDigits.length >= 8 && Boolean(draft.summary.trim());
+  return draft.phone.replace(/\D/g, '').length >= 8;
 }
 
 export interface ConciergeMessage {

@@ -51,7 +51,7 @@ export function RequestPanel({
   const phone = formatPhone(draft.phone);
   const phoneOk = hasValidPhone(draft.phone);
   const objective = draft.summary.trim();
-  const readyToSend = Boolean(name) && phoneOk && Boolean(objective);
+  const readyToSend = phoneOk;
   const canSend = readyToSend && !sending;
   const filled = [Boolean(name), phoneOk, Boolean(objective)].filter(Boolean).length;
 
@@ -65,7 +65,7 @@ export function RequestPanel({
     >
       <div className="concierge-panel-title">
         <span className="concierge-panel-icon"><ClipboardList size={16} /></span>
-        <span>Prise de rendez-vous</span>
+        <span>Être rappelé</span>
         {sent && !canSend
           ? <span className="concierge-submit-status concierge-submit-status--sent">Transmise</span>
           : <span className="concierge-panel-count">{filled}/3</span>}
@@ -80,8 +80,8 @@ export function RequestPanel({
       </div>
 
       <div className="concierge-fields">
-        <Field label="Nom" value={name} required />
         <Field label="Téléphone" value={phone} ok={phoneOk} required spaced />
+        <Field label="Nom" value={name} />
         <Field label="Adresse" value={draft.location} />
       </div>
 
@@ -160,7 +160,7 @@ export function RequestPanel({
 
       {!readyToSend && !sent && (
         <p className="concierge-panel-hint">
-          Le nom, le téléphone et l’objet de l’appel sont nécessaires pour envoyer la demande.
+          Votre numéro suffit : l’équipe CELEC vous recontacte par SMS ou par téléphone.
         </p>
       )}
       {submissionState === 'error' && (

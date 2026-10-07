@@ -16,7 +16,7 @@ export function buildLeadDescription(draft: ConciergeDraft) {
   const name = clean(draft.lastName.trim() || draft.firstName, 80);
   const lines: string[] = [];
   if (name) lines.push(`Nom : ${name}`);
-  if (draft.summary.trim()) lines.push(`Objet de l’appel : ${clean(draft.summary, 400)}`);
+  lines.push(`Objet de l’appel : ${draft.summary.trim() ? clean(draft.summary, 400) : 'à préciser lors du rappel'}`);
 
   const details: string[] = [];
   if (draft.siteType.trim()) details.push(`Type de site : ${clean(draft.siteType, 160)}`);
@@ -48,8 +48,8 @@ export async function submitConciergeLead(
   const phone = clean(draft.phone, 40);
   const phoneDigits = phone.replace(/\D/g, '');
 
-  if (!name || phoneDigits.length < 8) {
-    throw new Error('Le nom et un numéro de téléphone valide sont nécessaires.');
+  if (phoneDigits.length < 8) {
+    throw new Error('Un numéro de téléphone valide est nécessaire.');
   }
 
   const response = await fetch(`${supabaseUrl}/functions/v1/telegram-notify`, {
@@ -66,7 +66,7 @@ export async function submitConciergeLead(
       callback_requested: draft.callbackRequested,
       source,
       guest_phone: phone,
-      guest_name: name,
+      guest_name: name || undefined,
     }),
   });
 

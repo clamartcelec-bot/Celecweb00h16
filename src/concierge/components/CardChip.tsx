@@ -1,134 +1,112 @@
-import { useCallback, useRef, useState } from 'react';
-import {
-  AnimatePresence,
-  motion,
-  useMotionTemplate,
-  useMotionValue,
-  useReducedMotion,
-  useSpring,
-} from 'motion/react';
-import { ArrowUpRight, Camera, ChevronDown, Handshake } from 'lucide-react';
+import { motion, type Variants } from 'motion/react';
+import { ArrowUpRight, BookOpen, CheckCircle2, Handshake, ListOrdered, MapPin, Phone, Sparkles } from 'lucide-react';
 import type { ConciergeCard } from '../types';
+
+const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+
+const cardVariants: Variants = {
+  hidden: { opacity: 0, y: 36, scale: 0.94, rotateX: 10, filter: 'blur(14px)' },
+  visible: {
+    opacity: 1, y: 0, scale: 1, rotateX: 0, filter: 'blur(0px)',
+    transition: { type: 'spring', stiffness: 120, damping: 20, mass: 0.9 },
+  },
+  exit: { opacity: 0, scale: 0.96, filter: 'blur(8px)', transition: { duration: 0.3, ease: EASE } },
+};
+
+const pointVariants: Variants = {
+  hidden: { opacity: 0, x: -12 },
+  visible: (index: number) => ({ opacity: 1, x: 0, transition: { delay: 0.35 + index * 0.09, duration: 0.5, ease: EASE } }),
+};
+
+function provenance(card: ConciergeCard) {
+  if (card.kind === 'carnet') {
+    return { icon: <BookOpen size={12} />, label: 'Carnet d’interventions', detail: card.city || 'Chantier réel' };
+  }
+  if (card.kind === 'brand') {
+    return { icon: <Handshake size={12} />, label: 'Marques & partenaires', detail: 'Matériel posé par CELEC' };
+  }
+  return { icon: <Sparkles size={12} />, label: 'Repères CELEC', detail: 'Synthèse du concierge' };
+}
+
+const INFO_ICONS = {
+  info: <Sparkles size={16} />,
+  steps: <ListOrdered size={16} />,
+  checklist: <CheckCircle2 size={16} />,
+  contact: <Phone size={16} />,
+};
 
 interface CardChipProps {
   card: ConciergeCard;
-  index: number;
-  featured?: boolean;
-  sizeClass?: string;
+  lead: boolean;
   detailHref: string;
 }
 
-const ENTRANCE_EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
-const TILT_SPRING = { stiffness: 190, damping: 18 } as const;
+export function CardChip({ card, lead, detailHref }: CardChipProps) {
+  const source = provenance(card);
 
-export function CardChip({ card, index, featured = false, sizeClass = '', detailHref }: CardChipProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const isCarnet = card.kind === 'carnet';
-  const reduceMotion = useReducedMotion();
-  const cardRef = useRef<HTMLElement | null>(null);
-
-  const tiltXTarget = useMotionValue(0);
-  const tiltYTarget = useMotionValue(0);
-  const rotateX = useSpring(tiltXTarget, TILT_SPRING);
-  const rotateY = useSpring(tiltYTarget, TILT_SPRING);
-
-  const spotlightX = useMotionValue(0);
-  const spotlightY = useMotionValue(0);
-  const spotlight = useMotionTemplate`radial-gradient(260px circle at ${spotlightX}px ${spotlightY}px, rgba(232, 51, 106, 0.16), transparent 70%)`;
-
-  const handlePointerMove = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
-      if (reduceMotion || event.pointerType !== 'mouse') return;
-      const node = cardRef.current;
-      if (!node) return;
-      const rect = node.getBoundingClientRect();
-      const ratioX = (event.clientX - rect.left) / rect.width;
-      const ratioY = (event.clientY - rect.top) / rect.height;
-      tiltYTarget.set((ratioX - 0.5) * 10);
-      tiltXTarget.set((0.5 - ratioY) * 10);
-      spotlightX.set(event.clientX - rect.left);
-      spotlightY.set(event.clientY - rect.top);
-    },
-    [reduceMotion, tiltXTarget, tiltYTarget, spotlightX, spotlightY],
-  );
-
-  const handlePointerLeave = useCallback(() => {
-    tiltXTarget.set(0);
-    tiltYTarget.set(0);
-    setHovered(false);
-  }, [tiltXTarget, tiltYTarget]);
-
-  const delay = reduceMotion ? 0 : Math.min(index, 5) * 0.07;
+  if (card.kind === 'info') {
+    return (
+      <motion.article variants={cardVariants} className="cc-card cc-card--info" data-lead={lead || undefined}>
+        <header className="cc-info-head">
+          <span className="cc-info-icon">{INFO_ICONS[card.infoKind ?? 'info']}</span>
+          <h3 className="cc-title">{card.title}</h3>
+        </header>
+        <ol className={`cc-points cc-points--${card.infoKind ?? 'info'}`}>
+          {(card.points ?? []).map((point, index) => (
+            <motion.li key={point} custom={index} variants={pointVariants}>
+              <span className="cc-point-mark">{card.infoKind === 'steps' ? String(index + 1).padStart(2, '0') : ''}</span>
+              <span>{point}</span>
+            </motion.li>
+          ))}
+        </ol>
+        {card.note && <p className="cc-note">{card.note}</p>}
+        <footer className="cc-source">{source.icon}<span>{source.label}</span><em>{source.detail}</em></footer>
+      </motion.article>
+    );
+  }
 
   return (
-    <motion.article
-      ref={cardRef}
-      layout={!reduceMotion}
-      className={`cc-card ${featured ? 'cc-card--featured' : ''} ${sizeClass} ${expanded ? 'cc-card--open' : ''}`}
-      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.96 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97 }}
-      transition={reduceMotion ? { duration: 0 } : { duration: 0.5, ease: ENTRANCE_EASE, delay }}
-      style={reduceMotion ? undefined : { rotateX, rotateY, transformPerspective: 1000 }}
-      onPointerMove={handlePointerMove}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={handlePointerLeave}
-      whileTap={reduceMotion ? undefined : { scale: 0.985 }}
+    <motion.a
+      href={detailHref}
+      target="_blank"
+      rel="noreferrer"
+      variants={cardVariants}
+      whileHover={{ y: -4 }}
+      className={`cc-card cc-card--${card.kind}`}
+      data-lead={lead || undefined}
     >
-      <motion.span
-        className="cc-spotlight"
-        aria-hidden="true"
-        style={{ background: spotlight }}
-        animate={{ opacity: hovered && !reduceMotion ? 1 : 0 }}
-        transition={{ duration: 0.25 }}
-      />
-
-      <button className="cc-card-btn" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
-        <span className="cc-media">
-          {card.imageUrl
-            ? <img src={card.imageUrl} alt="" loading="lazy" />
-            : isCarnet
-              ? <span className="cc-media-fallback"><Camera size={26} /></span>
-              : <span className="cc-media-fallback cc-media-fallback--brand"><Handshake size={26} /></span>}
-          <span className="cc-overlay">
-            <span className="cc-badge">{isCarnet ? 'Carnet' : 'Marque'}</span>
-            <strong>{card.title}</strong>
-            {card.subtitle && <em>{card.subtitle}</em>}
-          </span>
-        </span>
-        <span className="cc-foot">
-          <span className="cc-foot-hint">{expanded ? 'Refermer' : 'Voir le détail'}</span>
-          <ChevronDown size={16} className={`cc-chevron ${expanded ? 'cc-chevron--up' : ''}`} />
-        </span>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            key="detail"
-            className="cc-detail"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={reduceMotion
-              ? { duration: 0 }
-              : { height: { type: 'spring', stiffness: 320, damping: 32 }, opacity: { duration: 0.2 } }}
-          >
-            <div className="cc-detail-inner">
-              <p>
-                {isCarnet
-                  ? 'Ce billet du carnet CELEC a été présenté pendant la conversation.'
-                  : 'Cette marque fait partie des références que nous installons et dépannons.'}
-              </p>
-              <a className="cc-link" href={detailHref} target="_blank" rel="noreferrer">
-                {isCarnet ? 'Ouvrir le billet' : 'Ouvrir la fiche'}
-                <ArrowUpRight size={14} />
-              </a>
-            </div>
-          </motion.div>
+      <div className="cc-media">
+        {card.imageUrl ? (
+          <motion.img
+            src={card.imageUrl}
+            alt=""
+            loading="lazy"
+            initial={{ scale: 1.18 }}
+            animate={{ scale: 1.02 }}
+            transition={{ duration: 2.4, ease: EASE }}
+          />
+        ) : (
+          <div className="cc-media-mark" aria-hidden="true">
+            <span>{card.title.slice(0, 2)}</span>
+          </div>
         )}
-      </AnimatePresence>
-    </motion.article>
+        <span className="cc-sheen" aria-hidden="true" />
+        <span className="cc-source cc-source--float">{source.icon}<span>{source.label}</span></span>
+      </div>
+
+      <div className="cc-body">
+        <h3 className="cc-title">{card.title}</h3>
+        {card.excerpt && <p className="cc-excerpt">{card.excerpt}</p>}
+        <div className="cc-meta">
+          {card.city && <span className="cc-tag"><MapPin size={11} />{card.city}</span>}
+          {card.brands?.map((brand) => <span key={brand} className="cc-tag cc-tag--brand">{brand}</span>)}
+          {card.kind === 'brand' && !card.excerpt && <span className="cc-tag">{card.subtitle}</span>}
+        </div>
+        <span className="cc-open">
+          {card.kind === 'carnet' ? 'Voir le billet' : 'Voir la fiche'}
+          <ArrowUpRight size={14} />
+        </span>
+      </div>
+    </motion.a>
   );
 }
