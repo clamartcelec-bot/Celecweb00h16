@@ -59,7 +59,7 @@ export function MapCanvas({
     const map = L.map(el, {
       center: [48.815, 2.27],
       zoom: 12,
-      minZoom: 9,
+      minZoom: 2,
       maxZoom: 18,
       zoomSnap: 0.5,
       zoomControl: false,
@@ -67,8 +67,9 @@ export function MapCanvas({
       dragging: immersive || !coarse,
       wheelPxPerZoomLevel: 90,
     });
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
+      subdomains: 'abc',
       className: 'mx-tiles',
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>',
     }).addTo(map);

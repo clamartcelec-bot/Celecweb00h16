@@ -116,14 +116,13 @@ export function MapExplorer({
             >
               {strip.map((p) => {
                 const src = coverOf(p.entry);
+                const meta = [p.entry.city, t.mapKinds[p.kind]].filter(Boolean).join(' · ');
                 return (
-                  <motion.button key={p.id} layout="position" className="mx-thumb" onClick={() => select(p)} whileHover={{ y: -3 }}>
-                    <span className="mx-thumb-img">
-                      {src ? <img src={src} alt="" loading="lazy" /> : <KindMark kind={p.kind} />}
-                    </span>
-                    <span className="mx-thumb-text">
+                  <motion.button key={p.id} layout="position" className="mx-thumb" onClick={() => select(p)} whileHover={{ y: -3 }} aria-label={p.entry.title}>
+                    {src ? <img src={src} alt="" loading="lazy" draggable={false} /> : <span className="mx-thumb-fallback"><KindMark kind={p.kind} /></span>}
+                    <span className="mx-thumb-veil" aria-hidden>
                       <b>{p.entry.title}</b>
-                      <small><KindMark kind={p.kind} /> {p.entry.city}</small>
+                      <small>{meta}</small>
                     </span>
                   </motion.button>
                 );
