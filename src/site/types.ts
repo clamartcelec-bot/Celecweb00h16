@@ -1,5 +1,5 @@
 export type Lang = 'fr' | 'en' | 'es' | 'ar';
-export type View = 'home' | 'carnet' | 'partners' | 'blocktech' | 'admin-login' | 'admin';
+export type View = 'home' | 'map' | 'carnet' | 'partners' | 'blocktech' | 'admin-login' | 'admin';
 export type Theme = 'light' | 'dark';
 export type ContactCategory = 'depannage' | 'chantier' | 'projet';
 
@@ -21,6 +21,7 @@ export interface Photo {
   image_url: string;
   created_at: string;
   detected_brands?: string[] | null;
+  entry_type?: string | null;
   photo_images?: PhotoImage[];
 }
 

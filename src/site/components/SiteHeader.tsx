@@ -38,6 +38,7 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
 
   const links: { label: string; view: View; anchor?: string }[] = [
     { label: t.navCarnet, view: 'carnet' },
+    { label: t.navMap, view: 'map' },
     { label: t.navPartners, view: 'partners' },
     { label: t.navServices, view: 'home', anchor: 'savoir-faire' },
   ];

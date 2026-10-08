@@ -13,6 +13,7 @@ import { EASE_OUT } from '@/site/motion';
 import { normalizeBrandName, type CityGroup, type ContactCategory, type Lang, type Partner, type Photo, type Theme, type View } from '@/site/types';
 import { SiteHeader } from '@/site/components/SiteHeader';
 import { SiteFooter } from '@/site/components/SiteFooter';
+import { MapPage } from '@/site/map/MapPage';
 import { Hero } from '@/site/components/Hero';
 import { ClientHome } from '@/site/components/ClientHome';
 import { AccountMenu } from '@/site/components/AccountMenu';
@@ -317,14 +318,14 @@ function App() {
                   onCallback={() => setCallbackOpen(true)}
                   onSeeWork={() => go('home', 'carnet-apercu')}
                   onCategory={pickCategory}
-                  onMap={() => go('home', 'carte')}
+                  onMap={() => go('map')}
                   onOpenEntry={(e) => openCarnetDetail(e)}
                   onConcierge={enterConcierge}
                 />
                 <StatsBand t={t} entries={photos.length} cities={cityGroups.length} partners={partners.length} />
                 <CarnetShowcase t={t} photos={photos} onOpen={(e) => openCarnetDetail(e)} onSeeAll={() => go('carnet')} />
                 <ServicesSection t={t} onBlockTech={() => go('blocktech')} />
-                <MapSection t={t} theme={theme} photos={photos} cityGroups={cityGroups} onOpen={(e) => openCarnetDetail(e)} />
+                <MapSection t={t} photos={photos} onOpen={(e) => openCarnetDetail(e)} onExpand={() => go('map')} />
                 <PartnersStrip t={t} partners={partners} onOpen={(p) => openBrand(p.name, p)} onSeeAll={() => go('partners')} />
                 <TeamSection t={t} />
                 <ContactSection
@@ -336,6 +337,7 @@ function App() {
                 />
               </>
             )}
+            {view === 'map' && <MapPage t={t} photos={photos} onOpen={(e) => openCarnetDetail(e)} onBack={() => go('home', 'carte')} />}
             {view === 'carnet' && <CarnetPage t={t} onOpen={(e) => openCarnetDetail(e)} />}
             {view === 'partners' && <PartnersPage t={t} partners={partners} onOpen={(p) => openBrand(p.name, p)} />}
             {view === 'blocktech' && <BlockTechPage t={t} />}

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { animate, motion, useInView, useReducedMotion, useScroll, useTransform } from 'motion/react';
-import { ArrowRight, Handshake, Lightbulb, MapPin, Wrench, X, Zap } from 'lucide-react';
+import { ArrowRight, Handshake, Lightbulb, Wrench, Zap } from 'lucide-react';
 import { IMAGES, type Copy } from '@/site/content';
 import { EASE_SOFT, fadeUp, stagger, viewportOnce } from '@/site/motion';
 import { SectionHead } from '@/site/components/SectionHead';
 import { EntryCard } from '@/site/components/EntryCard';
-import { InterventionMap } from '@/site/components/InterventionMap';
-import { coverOf, fmtDate, type CityGroup, type Partner, type Photo, type Theme } from '@/site/types';
+import { MapExplorer } from '@/site/map/MapExplorer';
+import { coverOf, fmtDate, type Partner, type Photo } from '@/site/types';
 
 function Counter({ value }: { value: number }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -129,62 +129,13 @@ export function ServicesSection({ t, onBlockTech }: { t: Copy; onBlockTech: () =
   );
 }
 
-export function MapSection({
-  t,
-  theme,
-  photos,
-  cityGroups,
-  onOpen,
-}: {
-  t: Copy;
-  theme: Theme;
-  photos: Photo[];
-  cityGroups: CityGroup[];
-  onOpen: (p: Photo) => void;
-}) {
-  const [selected, setSelected] = useState<string | null>(null);
-  const cityEntries = selected ? photos.filter((p) => p.city === selected) : [];
-  const toggle = (city: string) => setSelected((prev) => (prev === city ? null : city));
-
+export function MapSection({ t, photos, onOpen, onExpand }: { t: Copy; photos: Photo[]; onOpen: (p: Photo) => void; onExpand: () => void }) {
   return (
-    <section className="s-sec" id="carte">
+    <section className="s-sec s-sec--map" id="carte">
       <SectionHead index="03" title={t.mapTitle} lead={t.mapLead} />
-      <motion.div className="s-map" variants={fadeUp} initial="hidden" whileInView="show" viewport={viewportOnce}>
-        <div className="s-map-canvas">
-          <InterventionMap cityGroups={cityGroups} theme={theme} selectedCity={selected} onCityClick={toggle} />
-          <div className="s-map-legend">
-            <MapPin size={13} /> {photos.length} {t.mapPhotos} · {cityGroups.length} {t.mapCities}
-          </div>
-        </div>
-        <div className="s-map-side">
-          <div className="s-city-list">
-            {cityGroups.map((g) => (
-              <button key={g.city} className={`s-city ${selected === g.city ? 'is-active' : ''}`} onClick={() => toggle(g.city)}>
-                <span>{g.city}</span>
-                <em>{g.count}</em>
-              </button>
-            ))}
-          </div>
-        </div>
+      <motion.div variants={fadeUp} initial="hidden" whileInView="show" viewport={viewportOnce}>
+        <MapExplorer t={t} photos={photos} variant="home" onOpen={onOpen} onExpand={onExpand} />
       </motion.div>
-
-      {selected && (
-        <motion.div className="s-city-entries" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE_SOFT }}>
-          <div className="s-city-entries-head">
-            <h3><MapPin size={16} /> {selected}</h3>
-            <button className="s-icon-btn" onClick={() => setSelected(null)} aria-label={t.close}><X size={16} /></button>
-          </div>
-          {cityEntries.length === 0 ? (
-            <p className="s-muted">{t.mapEmpty}</p>
-          ) : (
-            <motion.div className="s-city-grid" variants={stagger(0.06)} initial="hidden" animate="show">
-              {cityEntries.map((p) => (
-                <EntryCard key={p.id} entry={p} cta={t.readEntry} onOpen={onOpen} className="s-entry--sm" />
-              ))}
-            </motion.div>
-          )}
-        </motion.div>
-      )}
     </section>
   );
 }

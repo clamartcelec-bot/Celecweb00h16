@@ -788,9 +788,10 @@ interface PhotoForm {
 }
 
 const ENTRY_TYPES = [
-  { value: 'chantier', label: 'Chantier' },
   { value: 'intervention', label: 'Intervention' },
-  { value: 'remarque', label: 'Remarque' },
+  { value: 'chantier', label: 'Chantier particulier' },
+  { value: 'chantier_pro', label: 'Chantier professionnel' },
+  { value: 'remarque', label: 'Carnet / billet' },
 ];
 
 const emptyForm: PhotoForm = { title: '', author: '', city: '', cityLat: 0, cityLng: 0, description: '', published: true, date: new Date().toISOString().slice(0, 10), brands: [], entryType: 'intervention' };

@@ -12,6 +12,7 @@ export function SiteFooter({ t, onNavigate, onConcierge }: { t: Copy; onNavigate
         </div>
         <nav className="s-ftr-links">
           <button onClick={() => onNavigate('carnet')}>{t.navCarnet}</button>
+          <button onClick={() => onNavigate('map')}>{t.navMap}</button>
           <button onClick={() => onNavigate('partners')}>{t.navPartners}</button>
           <button onClick={() => onNavigate('home', 'savoir-faire')}>{t.navServices}</button>
           <button onClick={() => onNavigate('blocktech')}>BlockTech</button>
