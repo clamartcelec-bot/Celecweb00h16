@@ -255,9 +255,11 @@ input,textarea{font:inherit;color:var(--text)}
 .crn-card-meta span{display:flex;align-items:center;gap:2px}
 .crn-card-desc{font-size:11px;color:var(--muted);margin-top:5px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .crn-card-actions{display:flex;gap:6px;margin-top:8px}
-.crn-btn-edit,.crn-btn-del{display:flex;align-items:center;gap:4px;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);color:var(--muted);transition:all .15s}
+.crn-btn-edit,.crn-btn-del,.crn-btn-merge{display:flex;align-items:center;gap:4px;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);color:var(--muted);transition:all .15s}
 .crn-btn-edit:hover{color:var(--pink);border-color:var(--pink)}
 .crn-btn-del:hover{color:#ef4444;border-color:#ef4444}
+.crn-btn-merge{margin-left:auto}
+.crn-btn-merge:hover{color:#3b82f6;border-color:#3b82f6}
 .crn-btn-publish{display:flex;align-items:center;gap:4px;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid #10b981;color:#10b981;background:transparent;transition:all .15s}
 .crn-btn-publish:hover{background:#10b981;color:#fff}
 .crn-btn-unpublish{display:flex;align-items:center;gap:4px;font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);color:var(--muted);transition:all .15s}
@@ -542,3 +544,15 @@ input,textarea{font:inherit;color:var(--text)}
 .cva-summary{margin:0;white-space:pre-wrap;font-family:var(--font);font-size:13px;line-height:1.55;color:var(--text);background:var(--bg);border-radius:10px;padding:14px 16px}
 .cva-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media (max-width:600px){.cva-when{min-width:0;width:100%}.cva-chev{position:absolute;right:16px}.cva-row{position:relative;padding-right:40px}}
+
+/* Carnet merge */
+.crn-merge-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid #3b82f6;background:rgba(59,130,246,.06);border-radius:12px;margin-bottom:12px;font-size:12px;color:var(--text);flex-wrap:wrap}
+.crn-merge-bar strong{color:#3b82f6}
+.crn-merge-actions{display:flex;gap:8px;margin-left:auto}
+.crn-btn-merge-go{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:7px 14px;border-radius:8px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;cursor:pointer;transition:background .15s}
+.crn-btn-merge-go:hover{background:#2563eb}
+.crn-btn-merge-cancel{display:inline-flex;align-items:center;font-size:12px;padding:7px 12px;border-radius:8px;border:1px solid var(--border);color:var(--muted);background:transparent;cursor:pointer;transition:color .15s,border-color .15s}
+.crn-btn-merge-cancel:hover{color:var(--text);border-color:var(--border)}
+.crn-card.merging{outline:2px dashed #3b82f6;outline-offset:2px}
+.crn-card.merge-pick{outline:2px solid #3b82f6;outline-offset:2px}
+.crn-draft-card.merge-pick{outline:2px solid #3b82f6;outline-offset:-2px}

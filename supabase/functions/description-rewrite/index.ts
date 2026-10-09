@@ -174,9 +174,6 @@ Deno.serve(async (req: Request) => {
         ],
         max_tokens: 800,
         temperature: 0.3,
-        // Keep reasoning models from emitting chain-of-thought alongside the answer.
-        reasoning_effort: "low",
-        chat_template_kwargs: { thinking: false },
       }),
     });
 

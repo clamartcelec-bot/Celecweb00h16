@@ -5,7 +5,7 @@ import {
   LayoutDashboard, MapPin, ArrowUpRight,
   Receipt, Search, Camera, Plus, Trash2,
   Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
-  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Mic, Square
+  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Mic, Square, Merge
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ConciergeTab } from '@/components/ConciergeTab';
@@ -905,7 +905,10 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
   const [descriptionTarget, setDescriptionTarget] = useState<PhotoRow | null>(null);
   const [rewriting, setRewriting] = useState(false);
   const [recordingFor, setRecordingFor] = useState<string | null>(null);
-  const [micError, setMicError] = useState('');
+  const [, setMicError] = useState('');
+  const [mergeKeep, setMergeKeep] = useState<string | null>(null);
+  const [mergePicks, setMergePicks] = useState<string[]>([]);
+  const [merging, setMerging] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -1068,7 +1071,8 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
         entryId = data.id;
       } else if (entryId) {
         const mobile = photos.find(p => p.id === entryId)?.source === 'mobile_app';
-        const { published: _published, ...editable } = row;
+        const { published: publishedFlag, ...editable } = row;
+        void publishedFlag;
         const { error } = await supabase.from('photos').update(mobile ? editable : row).eq('id', entryId);
         if (error) throw new Error(error.message);
       }
@@ -1141,6 +1145,22 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
       catch (e) { setErr(e instanceof Error ? e.message : 'Couverture impossible'); return; }
     } else { await supabase.from('photos').update({ image_url: imageUrl }).eq('id', photoId); }
     await onRefresh();
+  };
+
+  const toggleMergePick = (id: string) =>
+    setMergePicks(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+
+  const handleMerge = async () => {
+    if (!supabase || !mergeKeep || mergePicks.length === 0) return;
+    setMerging(true); setErr('');
+    try {
+      const { error } = await supabase.rpc('merge_photos', { p_keep: mergeKeep, p_absorbed: mergePicks });
+      if (error) throw new Error(error.message);
+      setMergeKeep(null); setMergePicks([]);
+      await onRefresh();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Fusion impossible');
+    } finally { setMerging(false); }
   };
 
   const startRecording = async (p: PhotoRow) => {
@@ -1344,6 +1364,21 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
         </div>
       </div>
       {err && <p className="adm-msg adm-err">{err}</p>}
+      {mergeKeep && (
+        <div className="crn-merge-bar">
+          <Merge size={15} />
+          <span>
+            Fusion dans <strong>{photos.find(p => p.id === mergeKeep)?.title}</strong> —
+            selectionnez les autres cartes a fusionner ({mergePicks.length} choisie{mergePicks.length > 1 ? 's' : ''}).
+          </span>
+          <div className="crn-merge-actions">
+            <button className="crn-btn-merge-go" onClick={handleMerge} disabled={merging || mergePicks.length === 0}>
+              <Merge size={13} /> {merging ? 'Fusion...' : `Fusionner (${mergePicks.length + 1} cartes)`}
+            </button>
+            <button className="crn-btn-merge-cancel" onClick={() => { setMergeKeep(null); setMergePicks([]); }}>Annuler</button>
+          </div>
+        </div>
+      )}
       {drafts.length > 0 && (
         <div className="crn-drafts-section">
           <h3 className="crn-section-title"><EyeOff size={15} /> Brouillons a valider ({drafts.length})</h3>
@@ -1353,8 +1388,15 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
               const isExpanded = expandedDraft === p.id;
               const brands = p.detected_brands || [];
               const hasRawData = p.raw_data || p.voice_transcript || brands.length > 0;
+              const isMergePick = mergePicks.includes(p.id);
+              const mergeActive = mergeKeep !== null;
               return (
-                <div key={p.id} className="crn-draft-card">
+                <div
+                  key={p.id}
+                  className={`crn-draft-card ${isMergePick ? 'merge-pick' : ''} ${mergeActive && !isMergePick && mergeKeep !== p.id ? 'merging' : ''}`}
+                  onClick={mergeActive && mergeKeep !== p.id ? () => toggleMergePick(p.id) : undefined}
+                  style={mergeActive && mergeKeep !== p.id ? { cursor: 'pointer' } : undefined}
+                >
                   <div className="crn-draft-main" onClick={() => setExpandedDraft(isExpanded ? null : p.id)}>
                     {thumbUrl ? <img src={thumbUrl} alt={p.title} className="crn-draft-thumb" /> : <div className="crn-draft-thumb crn-draft-thumb-empty"><Camera size={20} /></div>}
                     <div className="crn-draft-info">
@@ -1466,6 +1508,13 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                       <div className="crn-draft-actions">
                         <button className="crn-btn-edit" onClick={() => openEdit(p)}><Pencil size={13} /> Modifier</button>
                         <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}><Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}</button>
+                        <button
+                          className={`crn-btn-merge ${mergeKeep === p.id ? 'merge-pick' : ''}`}
+                          onClick={() => { setMergeKeep(mergeKeep === p.id ? null : p.id); setMergePicks([]); }}
+                          disabled={merging}
+                        >
+                          <Merge size={13} /> {mergeKeep === p.id ? 'Carte de destination' : 'Fusionner'}
+                        </button>
                       </div>
                     </div>
                   )}
@@ -1482,8 +1531,15 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
           const imgCount = (p.images?.length ?? 0) + (p.image_url && !p.images?.length ? 1 : 0);
           const thumbUrl = p.images?.[0]?.image_url || p.image_url;
           const brands = p.detected_brands || [];
+          const isMergePick = mergePicks.includes(p.id);
+          const mergeActive = mergeKeep !== null;
           return (
-            <div key={p.id} className="crn-card">
+            <div
+              key={p.id}
+              className={`crn-card ${isMergePick ? 'merge-pick' : ''} ${mergeActive && !isMergePick && mergeKeep !== p.id ? 'merging' : ''}`}
+              onClick={mergeActive && mergeKeep !== p.id ? () => toggleMergePick(p.id) : undefined}
+              style={mergeActive && mergeKeep !== p.id ? { cursor: 'pointer' } : undefined}
+            >
               {thumbUrl ? <div className="crn-img-wrap"><img src={thumbUrl} alt={p.title} className="crn-img" />{imgCount > 1 && <span className="crn-img-count">{imgCount} photos</span>}</div> : <div className="crn-img crn-img-empty"><ImageIcon size={24} /></div>}
               <div className="crn-card-body">
                 <div className="crn-card-top"><h4>{p.title}</h4>{p.source === 'telegram' && <span className="crn-badge-source crn-badge-sm">TG</span>}{p.source === 'mobile_app' && <span className="crn-badge-source crn-badge-sm">Mobile</span>}{p.entry_type && <span className="crn-badge-type">{ENTRY_TYPES.find(t => t.value === p.entry_type)?.label || p.entry_type}</span>}</div>
@@ -1494,6 +1550,13 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                   <button className="crn-btn-edit" onClick={() => openEdit(p)}><Pencil size={13} /> Modifier</button>
                   <button className="crn-btn-unpublish" onClick={() => handleUnpublish(p.id)} disabled={publishing === p.id}><EyeOff size={13} /> {publishing === p.id ? '...' : 'Depublier'}</button>
                   <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}><Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}</button>
+                  <button
+                    className={`crn-btn-merge ${mergeKeep === p.id ? 'merge-pick' : ''}`}
+                    onClick={() => { setMergeKeep(mergeKeep === p.id ? null : p.id); setMergePicks([]); }}
+                    disabled={merging}
+                  >
+                    <Merge size={13} /> {mergeKeep === p.id ? 'Carte de destination' : 'Fusionner'}
+                  </button>
                 </div>
               </div>
             </div>
