@@ -909,6 +909,13 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
   const [mergeKeep, setMergeKeep] = useState<string | null>(null);
   const [mergePicks, setMergePicks] = useState<string[]>([]);
   const [merging, setMerging] = useState(false);
+  const [pendingUndo, setPendingUndo] = useState<{
+    keepId: string;
+    keepDescription: string | null;
+    keepBrands: string[] | null;
+    absorbed: PhotoRow[];
+  } | null>(null);
+  const [undoSeconds, setUndoSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -1150,18 +1157,82 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
   const toggleMergePick = (id: string) =>
     setMergePicks(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
 
+  const toggleMergeDestination = (id: string) => {
+    setPendingUndo(null); setUndoSeconds(0);
+    setMergeKeep(mergeKeep === id ? null : id);
+    setMergePicks([]);
+  };
+
   const handleMerge = async () => {
     if (!supabase || !mergeKeep || mergePicks.length === 0) return;
+    const keepRow = photos.find(p => p.id === mergeKeep);
+    const absorbedRows = mergePicks
+      .map(id => photos.find(p => p.id === id))
+      .filter((p): p is PhotoRow => Boolean(p));
     setMerging(true); setErr('');
     try {
       const { error } = await supabase.rpc('merge_photos', { p_keep: mergeKeep, p_absorbed: mergePicks });
       if (error) throw new Error(error.message);
       setMergeKeep(null); setMergePicks([]);
+      if (keepRow && absorbedRows.length > 0) {
+        setPendingUndo({
+          keepId: keepRow.id,
+          keepDescription: keepRow.description ?? null,
+          keepBrands: keepRow.detected_brands ?? null,
+          absorbed: absorbedRows,
+        });
+        setUndoSeconds(6);
+      }
       await onRefresh();
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Fusion impossible');
     } finally { setMerging(false); }
   };
+
+  const handleUndoMerge = async () => {
+    if (!supabase || !pendingUndo) return;
+    const { keepId, keepDescription, keepBrands, absorbed } = pendingUndo;
+    setMerging(true); setErr('');
+    try {
+      const { error: keepErr } = await supabase
+        .from('photos')
+        .update({ description: keepDescription, detected_brands: keepBrands })
+        .eq('id', keepId);
+      if (keepErr) throw new Error(keepErr.message);
+      for (const row of absorbed) {
+        for (const img of row.images ?? []) {
+          const { error } = await supabase
+            .from('photo_images')
+            .update({ photo_id: row.id, position: img.position })
+            .eq('id', img.id);
+          if (error) throw new Error(error.message);
+        }
+        const payload: Record<string, unknown> = {
+          id: row.id, title: row.title, city: row.city, lat: row.lat, lng: row.lng,
+          description: row.description, author: row.author, published: row.published,
+          created_at: row.created_at, detected_brands: row.detected_brands ?? null,
+          entry_type: row.entry_type ?? null, source: row.source ?? null,
+          voice_transcript: row.voice_transcript ?? null, ai_summary: row.ai_summary ?? null,
+          raw_data: row.raw_data ?? null,
+        };
+        if (row.source !== 'mobile_app') payload.image_url = row.image_url ?? '';
+        const { error } = await supabase.from('photos').insert(payload);
+        if (error) throw new Error(error.message);
+      }
+      setPendingUndo(null); setUndoSeconds(0);
+      await onRefresh();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Annulation impossible');
+      setPendingUndo(null); setUndoSeconds(0);
+    } finally { setMerging(false); }
+  };
+
+  useEffect(() => {
+    if (!pendingUndo) return;
+    if (undoSeconds <= 0) { setPendingUndo(null); return; }
+    const t = window.setTimeout(() => setUndoSeconds(s => s - 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [pendingUndo, undoSeconds]);
 
   const startRecording = async (p: PhotoRow) => {
     setMicError('');
@@ -1379,6 +1450,21 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
           </div>
         </div>
       )}
+      {mergeKeep && mergePicks.length > 0 && (
+        <div className="crn-merge-fab-wrap">
+          <button className="crn-merge-fab" onClick={handleMerge} disabled={merging}>
+            <Merge size={20} /> {merging ? 'Fusion...' : `Fusionner ${mergePicks.length + 1} cartes`}
+          </button>
+        </div>
+      )}
+      {pendingUndo && (
+        <div className="crn-undo-toast">
+          <span>Fusion de {pendingUndo.absorbed.length + 1} cartes effectuee</span>
+          <button className="crn-undo-btn" onClick={handleUndoMerge} disabled={merging}>
+            Annuler ({undoSeconds}s)
+          </button>
+        </div>
+      )}
       {drafts.length > 0 && (
         <div className="crn-drafts-section">
           <h3 className="crn-section-title"><EyeOff size={15} /> Brouillons a valider ({drafts.length})</h3>
@@ -1510,7 +1596,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                         <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}><Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}</button>
                         <button
                           className={`crn-btn-merge ${mergeKeep === p.id ? 'merge-pick' : ''}`}
-                          onClick={() => { setMergeKeep(mergeKeep === p.id ? null : p.id); setMergePicks([]); }}
+                          onClick={() => toggleMergeDestination(p.id)}
                           disabled={merging}
                         >
                           <Merge size={13} /> {mergeKeep === p.id ? 'Carte de destination' : 'Fusionner'}
@@ -1552,7 +1638,7 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
                   <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}><Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}</button>
                   <button
                     className={`crn-btn-merge ${mergeKeep === p.id ? 'merge-pick' : ''}`}
-                    onClick={() => { setMergeKeep(mergeKeep === p.id ? null : p.id); setMergePicks([]); }}
+                    onClick={() => toggleMergeDestination(p.id)}
                     disabled={merging}
                   >
                     <Merge size={13} /> {mergeKeep === p.id ? 'Carte de destination' : 'Fusionner'}

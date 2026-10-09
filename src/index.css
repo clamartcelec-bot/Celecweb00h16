@@ -556,3 +556,14 @@ input,textarea{font:inherit;color:var(--text)}
 .crn-card.merging{outline:2px dashed #3b82f6;outline-offset:2px}
 .crn-card.merge-pick{outline:2px solid #3b82f6;outline-offset:2px}
 .crn-draft-card.merge-pick{outline:2px solid #3b82f6;outline-offset:-2px}
+
+/* Merge FAB + undo toast */
+.crn-merge-fab-wrap{position:fixed;inset:auto 0 88px 0;display:flex;justify-content:center;pointer-events:none;z-index:60}
+.crn-merge-fab{pointer-events:auto;display:inline-flex;align-items:center;gap:10px;font-size:15px;font-weight:700;padding:14px 28px;border-radius:999px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;cursor:pointer;box-shadow:0 12px 32px rgba(59,130,246,.4);transition:background .15s,transform .12s}
+.crn-merge-fab:hover:not(:disabled){background:#2563eb}
+.crn-merge-fab:active:not(:disabled){transform:scale(.97)}
+.crn-merge-fab:disabled{opacity:.6;cursor:wait}
+.crn-undo-toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;display:flex;align-items:center;gap:14px;padding:12px 18px;border-radius:12px;background:#111827;color:#fff;font-size:13px;box-shadow:0 12px 32px rgba(0,0,0,.35);z-index:70}
+.crn-undo-btn{font-size:12px;font-weight:700;padding:6px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.4);background:transparent;color:#fff;cursor:pointer;transition:background .15s}
+.crn-undo-btn:hover:not(:disabled){background:rgba(255,255,255,.14)}
+.crn-undo-btn:disabled{opacity:.55;cursor:wait}
