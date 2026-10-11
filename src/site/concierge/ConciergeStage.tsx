@@ -1,8 +1,9 @@
+import { useState, type ChangeEvent } from 'react';
 import { motion } from 'motion/react';
-import { ArrowUpRight, Check, CheckCircle2, Clock, Handshake, Info, ListChecks, MapPin, Phone, X } from 'lucide-react';
+import { ArrowUpRight, Check, CheckCircle2, Clock, Handshake, Info, ListChecks, MapPin, Send, X } from 'lucide-react';
 import type { Partner, Photo } from '@/site/types';
 import type { ConciergeApi } from './useConcierge';
-import type { Stage } from './conciergeTools';
+import type { RequestDraft, Stage } from './conciergeTools';
 
 interface Props {
   api: ConciergeApi;
@@ -61,23 +62,53 @@ function PartnerCard({ partner, onOpenPartner }: { partner: Partner; onOpenPartn
   );
 }
 
+const FIELDS: { key: 'first_name' | 'phone' | 'summary' | 'location' | 'availability'; label: string; placeholder: string; type?: string }[] = [
+  { key: 'first_name', label: 'Votre nom', placeholder: 'Prénom et nom' },
+  { key: 'phone', label: 'Téléphone', placeholder: '06 12 34 56 78', type: 'tel' },
+  { key: 'summary', label: 'Objet', placeholder: 'Ce dont vous avez besoin' },
+  { key: 'location', label: 'Lieu', placeholder: 'Commune ou adresse' },
+  { key: 'availability', label: 'Disponibilités', placeholder: 'Quand vous êtes joignable' },
+];
+
 function RequestCard({ api, sent }: { api: ConciergeApi; sent: boolean }) {
   const d = api.draft;
-  const rows = [
-    ['Nom', [d.first_name, d.last_name].filter(Boolean).join(' ')],
-    ['Téléphone', d.phone],
-    ['Objet', d.summary],
-    ['Lieu', d.location],
-    ['Disponibilités', d.availability],
-  ].filter((r): r is [string, string] => Boolean(r[1]));
+  const [sending, setSending] = useState(false);
+  const phoneOk = (d.phone ?? '').replace(/\D/g, '').length >= 8;
+  const set = (key: keyof RequestDraft, value: string) => api.patchDraft({ [key]: value } as Partial<RequestDraft>);
   return (
     <>
       <p className="s-stage-kicker">{sent ? 'Demande transmise à l’équipe' : 'Votre demande'}</p>
-      {sent && <p className="s-stage-sent"><CheckCircle2 size={18} /> Merci ! L’équipe vous recontacte rapidement.</p>}
-      <dl className="s-stage-rows">
-        {rows.length ? rows.map(([k, v]) => (<div key={k}><dt>{k}</dt><dd>{v}</dd></div>)) : <p className="s-stage-note">Le robot remplit la fiche au fil de la conversation.</p>}
-      </dl>
-      {!sent && <p className="s-stage-note"><Phone size={13} /> Seul votre numéro est indispensable. Rien n’est envoyé sans votre accord.</p>}
+      {sent ? (
+        <p className="s-stage-sent"><CheckCircle2 size={18} /> Merci ! L’équipe vous recontacte rapidement.</p>
+      ) : (
+        <>
+          <p className="s-stage-note s-stage-choice">Remplissez ces champs vous-même, ou dites-le-moi : je les remplis pour vous.</p>
+          <div className="s-stage-form">
+            {FIELDS.map((f) => (
+              <label key={f.key} className={`s-stage-field ${f.key === 'summary' ? 'is-wide' : ''}`}>
+                <span>{f.label}</span>
+                <input
+                  type={f.type ?? 'text'}
+                  value={d[f.key] ?? ''}
+                  placeholder={f.placeholder}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => set(f.key, e.target.value)}
+                  onBlur={api.announceDraft}
+                />
+              </label>
+            ))}
+          </div>
+          <div className="s-stage-actions">
+            <button
+              className="s-btn s-btn--primary"
+              disabled={!phoneOk || sending}
+              onClick={() => { setSending(true); void api.submitDraft().finally(() => setSending(false)); }}
+            >
+              <Send size={15} /> {sending ? 'Envoi…' : 'Envoyer ma demande'}
+            </button>
+            <small>{phoneOk ? 'Rien n’est envoyé sans votre accord.' : 'Il ne manque que votre numéro de téléphone.'}</small>
+          </div>
+        </>
+      )}
       {api.appointment && !sent && (
         <button className="s-link s-link--muted" onClick={api.endAppointment}>Sortir de la prise de rendez-vous</button>
       )}

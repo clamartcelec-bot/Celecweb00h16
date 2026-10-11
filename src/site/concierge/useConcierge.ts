@@ -214,30 +214,48 @@ export function useConcierge({ photos, partners, userEmail, context, onActions }
     persist(turn);
   }, [persist]);
 
+  const applyDraft = useCallback((patch: Partial<RequestDraft>) => {
+    setDraft((d) => {
+      const next = { ...d, ...patch };
+      latest.current.draft = next;
+      return next;
+    });
+  }, []);
+
+  const makeEnv = useCallback(() => ({
+    ...latest.current,
+    facts: facts.current,
+    show: (s: Stage) => setStage(s),
+    act: (a: ConciergeAction) => {
+      if (a.type === 'show_entries' || a.type === 'show_partner') pendingActions.current.push(a);
+      else latest.current.onActions([a]);
+    },
+    patchDraft: applyDraft,
+    setAppointment: (on: boolean) => setAppointmentState(on),
+    onChatPage: latest.current.context().page === 'concierge',
+    lastSearch,
+    guide: (step: Omit<Guide, 'id'>) => {
+      setStage((s) => (s?.kind === 'request' ? s : null));
+      setGuide({ ...step, id: Date.now() });
+    },
+  }), [applyDraft]);
+
+  const announceDraft = useCallback(() => {
+    const d = latest.current.draft;
+    const parts = [
+      d.first_name && `nom : ${[d.first_name, d.last_name].filter(Boolean).join(' ')}`,
+      d.phone && `téléphone : ${d.phone}`,
+      d.summary && `objet : ${d.summary}`,
+      d.location && `lieu : ${d.location}`,
+      d.availability && `disponibilités : ${d.availability}`,
+    ].filter(Boolean);
+    if (parts.length) link.current?.send(systemItem(`Le visiteur a rempli la fiche lui-même : ${parts.join(' ; ')}. Ne redemande pas ces informations, confirme-les seulement.`));
+  }, []);
+
   const respondToTools = useCallback(async (calls: { name: string; call_id: string; arguments: string }[]) => {
     const l = link.current;
     if (!l) return;
-    const env = {
-      ...latest.current,
-      facts: facts.current,
-      show: (s: Stage) => setStage(s),
-      act: (a: ConciergeAction) => {
-        if (a.type === 'show_entries' || a.type === 'show_partner') pendingActions.current.push(a);
-        else latest.current.onActions([a]);
-      },
-      patchDraft: (p: Partial<RequestDraft>) => setDraft((d) => {
-        const next = { ...d, ...p };
-        latest.current.draft = next;
-        return next;
-      }),
-      setAppointment: (on: boolean) => setAppointmentState(on),
-      onChatPage: latest.current.context().page === 'concierge',
-      lastSearch,
-      guide: (step: Omit<Guide, 'id'>) => {
-        setStage((s) => (s?.kind === 'request' ? s : null));
-        setGuide({ ...step, id: Date.now() });
-      },
-    };
+    const env = makeEnv();
     for (const c of calls) {
       let args: Record<string, unknown> = {};
       try { args = JSON.parse(c.arguments || '{}') as Record<string, unknown>; } catch { /* empty args */ }
@@ -246,7 +264,7 @@ export function useConcierge({ photos, partners, userEmail, context, onActions }
     }
     syncPage(l);
     l.send({ type: 'response.create' });
-  }, [syncPage]);
+  }, [makeEnv, syncPage]);
 
   handleEvent.current = (e: RealtimeEvent) => {
     touch();
@@ -450,6 +468,15 @@ export function useConcierge({ photos, partners, userEmail, context, onActions }
   return {
     turns, phase, caption, stage, draft, appointment, error, muted, guide,
     guideDone: (id: number) => setGuide((g) => (g?.id === id ? null : g)),
+    patchDraft: applyDraft,
+    announceDraft,
+    submitDraft: async () => {
+      const out = await runTool('submit_request', { explicit_confirmed: true }, makeEnv());
+      const failure = typeof out.error === 'string' ? out.error : null;
+      if (failure) setError(failure);
+      else link.current?.send(systemItem('Le visiteur vient de transmettre la fiche lui-même. Remercie-le et ne demande plus rien.'));
+      return { ok: out.sent === true, error: failure };
+    },
     setError, setMuted, transcribe, sendText, startTalking, stopTalking, stopSpeaking,
     preconnect: () => { void connect(); },
     dismissStage: () => setStage(null),

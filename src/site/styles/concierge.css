@@ -180,3 +180,18 @@ html.dark .s-dock.is-corner .s-dock-halo { background: radial-gradient(circle, r
 @media (prefers-reduced-motion: reduce) {
   .s-dock.is-moving .s-dock-btn { animation: none; }
 }
+
+.s-stage-choice { margin: 0; color: var(--s-ink-soft, #4a4f57); }
+.s-stage-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.s-stage-field { display: grid; gap: 5px; }
+.s-stage-field.is-wide { grid-column: 1 / -1; }
+.s-stage-field > span { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--s-ink-faint, #8a8f98); }
+.s-stage-field input { width: 100%; height: 46px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--s-line); background: var(--s-bg, #fff); color: var(--s-ink); font: inherit; font-size: 15px; transition: border-color 0.22s, box-shadow 0.22s; }
+.s-stage-field input::placeholder { color: var(--s-ink-faint, #9aa0a8); }
+.s-stage-field input:focus { outline: 0; border-color: var(--s-accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--s-accent) 15%, transparent); }
+.s-stage-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.s-stage-actions small { color: var(--s-ink-faint, #8a8f98); font-size: 12.5px; }
+.s-stage .s-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 560px) {
+  .s-stage-form { grid-template-columns: minmax(0, 1fr); }
+}
