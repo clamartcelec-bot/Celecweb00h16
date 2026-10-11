@@ -179,6 +179,9 @@ html.dark .s-aura { opacity: 0.22; }
 .s-nav-underline { position: absolute; inset: 0; z-index: -1; border-radius: 999px; background: var(--s-surface); box-shadow: var(--s-shadow-sm); }
 .s-nav-concierge { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 16px; margin-inline-start: 4px; border-radius: 999px; font-size: 0.9rem; font-weight: 500; color: var(--s-accent); background: var(--s-accent-50); transition: background 0.3s, color 0.3s; }
 .s-nav-concierge:hover { background: var(--s-accent); color: #fff; }
+.s-nav-mirror { position: absolute; visibility: hidden; pointer-events: none; display: flex; align-items: center; gap: 2px; height: 0; overflow: hidden; white-space: nowrap; }
+.s-nav-mirror .s-nav-link { height: auto; padding: 0 16px; }
+.s-nav-mirror .s-nav-concierge { display: inline-flex; margin: 0; }
 .s-hdr-actions { display: flex; align-items: center; gap: 8px; }
 .s-acct-wrap { position: relative; }
 .s-acct { position: relative; display: inline-flex; align-items: center; gap: 10px; height: 42px; padding: 0 16px 0 4px; max-width: 210px; border-radius: 999px; font-size: 0.875rem; font-weight: 500; color: var(--s-ink); background: var(--s-glass); border: 1px solid var(--s-line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); transition: border-color 0.3s, box-shadow 0.4s var(--s-ease), background 0.3s; }
@@ -213,7 +216,10 @@ html.dark .s-aura { opacity: 0.22; }
 .s-pop-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 12px; font-size: 0.9rem; font-weight: 500; transition: background 0.3s; }
 .s-pop-row:hover { background: var(--s-bg-2); }
 .s-pop-row--accent { color: var(--s-accent); }
-.s-burger { display: none; }
+.s-icon-btn.is-needed, .s-icon-btn.is-on { background: var(--s-surface); border-color: var(--s-line-2); }
+
+.s-icon-btn.s-burger { display: none; }
+.s-icon-btn.s-burger.is-needed { display: grid; }
 .s-mobile-menu { position: fixed; z-index: 55; inset: 0 0 auto 0; padding: 96px var(--s-gutter) 32px; display: grid; gap: 4px; background: var(--s-glass); backdrop-filter: blur(24px) saturate(1.6); -webkit-backdrop-filter: blur(24px) saturate(1.6); border-bottom: 1px solid var(--s-line); box-shadow: var(--s-shadow); }
 .s-mobile-link { display: flex; align-items: center; gap: 10px; text-align: start; padding: 14px 4px; font-size: 1.6rem; font-weight: 500; letter-spacing: -0.03em; color: var(--s-ink); border-bottom: 1px solid var(--s-line); }
 .s-mobile-link--accent { color: var(--s-accent); border-bottom: 0; }
@@ -245,13 +251,14 @@ html.dark .s-aura { opacity: 0.22; }
 @keyframes s-scroll { 0% { transform: translateY(0); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(18px); opacity: 0; } }
 
 @media (max-width: 1080px) {
-  .s-nav { display: none; }
-  .s-burger { display: grid; }
+  .s-nav { flex-shrink: 1; min-width: 0; overflow: hidden; }
 }
 @media (max-width: 560px) {
   .s-acct-label { display: none; }
   .s-acct { padding: 0 3px; }
-  .s-hdr { padding-inline-start: 18px; }
+  .s-hdr { padding-inline-start: 18px; gap: 8px; }
+  .s-nav { max-width: none; }
+  .s-nav-mirror .s-nav-concierge { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

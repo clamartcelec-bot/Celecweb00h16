@@ -23,7 +23,58 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll();
+
+  const links: { label: string; view: View; anchor?: string }[] = [
+    { label: t.navServices, view: 'home', anchor: 'familles' },
+    { label: 'Entretien', view: 'entretien' },
+    { label: t.navCarnet, view: 'carnet' },
+    { label: t.navMap, view: 'map' },
+    { label: t.navPartners, view: 'partners' },
+  ];
+
+  // How many links fit next to the Concierge button before the burger takes over.
+  const [fit, setFit] = useState(links.length);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    const nav = navRef.current;
+    const mirror = mirrorRef.current;
+    if (!header || !nav || !mirror) return;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const cs = getComputedStyle(header);
+      const logo = header.querySelector<HTMLElement>('.s-logo');
+      const actions = header.querySelector<HTMLElement>('.s-hdr-actions');
+      const pad = parseFloat(cs.paddingLeft || '0') + parseFloat(cs.paddingRight || '0');
+      const gaps = parseFloat(cs.columnGap || '0') * 2;
+      const kids = Array.from(mirror.children) as HTMLElement[];
+      const linkW = kids.slice(0, links.length).map((el) => el.offsetWidth + 2);
+      const conciergeW = (kids[kids.length - 1]?.offsetWidth ?? 0) + 6;
+      const chrome = 8 + conciergeW;
+      const base = header.clientWidth - pad - gaps - (logo?.offsetWidth ?? 0) - (actions?.offsetWidth ?? 0) - 24;
+      const count = (withBurger: boolean) => {
+        let total = chrome + (withBurger ? 50 : 0);
+        let k = 0;
+        while (k < links.length && total + linkW[k] <= base) { total += linkW[k]; k++; }
+        return k;
+      };
+      const full = count(false);
+      setFit(full === links.length ? full : count(true));
+    };
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(measure); };
+    const ro = new ResizeObserver(schedule);
+    ro.observe(header);
+    if (nav) ro.observe(nav);
+    void document.fonts?.ready.then(schedule);
+    return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
+  }, [links.length]);
+
+  const collapsed = fit < links.length;
 
   useMotionValueEvent(scrollY, 'change', (y) => setScrolled(y > 24));
 
@@ -36,14 +87,6 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
     return () => document.removeEventListener('mousedown', handler);
   }, [settingsOpen]);
 
-  const links: { label: string; view: View; anchor?: string }[] = [
-    { label: t.navServices, view: 'home', anchor: 'familles' },
-    { label: 'Entretien', view: 'entretien' },
-    { label: t.navCarnet, view: 'carnet' },
-    { label: t.navMap, view: 'map' },
-    { label: t.navPartners, view: 'partners' },
-  ];
-
   const navigate = (target: View, anchor?: string) => {
     setMenuOpen(false);
     onNavigate(target, anchor);
@@ -53,6 +96,7 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
     <>
       <motion.header
         className={`s-hdr ${scrolled || menuOpen ? 's-hdr--solid' : ''}`}
+        ref={headerRef}
         initial={{ y: -40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.9, ease: EASE_SOFT, delay: 0.1 }}
@@ -61,8 +105,14 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
           CELEC<span>.</span>
         </button>
 
-        <nav className="s-nav" aria-label="Navigation principale">
-          {links.map((link) => {
+        <nav className="s-nav" aria-label="Navigation principale" ref={navRef}>
+          <div className="s-nav-mirror" ref={mirrorRef} aria-hidden="true">
+            {links.map((link) => (
+              <span key={link.label} className="s-nav-link" tabIndex={-1}>{link.label}</span>
+            ))}
+            <span className="s-nav-concierge" tabIndex={-1}><Sparkles size={14} />{t.navConcierge}</span>
+          </div>
+          {links.slice(0, fit).map((link) => {
             const active = !link.anchor && view === link.view;
             return (
               <button key={link.label} data-robot-target={`nav-${link.anchor ?? link.view}`} className={`s-nav-link ${active ? 'is-active' : ''}`} onClick={() => navigate(link.view, link.anchor)}>
@@ -128,7 +178,7 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
             </AnimatePresence>
           </div>
 
-          <button className="s-icon-btn s-burger" onClick={() => setMenuOpen((v) => !v)} aria-label="Menu" aria-expanded={menuOpen}>
+          <button className={`s-icon-btn s-burger ${collapsed ? 'is-needed' : ''}`} onClick={() => setMenuOpen((v) => !v)} aria-label="Menu" aria-expanded={menuOpen}>
             {menuOpen ? <X size={19} /> : <Menu size={19} />}
           </button>
         </div>
