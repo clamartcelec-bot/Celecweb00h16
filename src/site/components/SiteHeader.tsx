@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from 'motion/react';
-import { Check, Menu, Moon, Settings2, ShieldCheck, Sparkles, Sun, X } from 'lucide-react';
+import { Check, History, LogOut, Menu, Moon, Settings2, ShieldCheck, Sparkles, Sun, UserRound, X } from 'lucide-react';
 import { languages, type Copy } from '@/site/content';
 import { EASE_SOFT } from '@/site/motion';
+import { AccountMenu } from '@/site/components/AccountMenu';
 import type { Lang, Theme, View } from '@/site/types';
 
 interface Props {
@@ -10,21 +11,25 @@ interface Props {
   lang: Lang;
   theme: Theme;
   view: View;
-  account: ReactNode;
+  userEmail: string | null;
+  userName: string | null;
   isAdmin: boolean;
+  onSignIn: () => void;
+  onSpace: () => void;
+  onHistory: () => void;
+  onLogout: () => void;
   onLang: (lang: Lang) => void;
   onTheme: () => void;
   onNavigate: (view: View, anchor?: string) => void;
   onConcierge: () => void;
 }
 
-export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onTheme, onNavigate, onConcierge }: Props) {
+export function SiteHeader({ t, lang, theme, view, userEmail, userName, isAdmin, onSignIn, onSpace, onHistory, onLogout, onLang, onTheme, onNavigate, onConcierge }: Props) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
-  const navRef = useRef<HTMLElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll();
 
@@ -36,17 +41,20 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
     { label: t.navPartners, view: 'partners' },
   ];
 
-  // How many links fit next to the Concierge button before the burger takes over.
+  // How many links fit before collapsing into the burger; the Concierge button
+  // is always the last thing kept visible (icon-only on small screens).
   const [fit, setFit] = useState(links.length);
+  const [narrow, setNarrow] = useState(false);
 
   useEffect(() => {
     const header = headerRef.current;
-    const nav = navRef.current;
     const mirror = mirrorRef.current;
-    if (!header || !nav || !mirror) return;
+    if (!header || !mirror) return;
     let raf = 0;
     const measure = () => {
       raf = 0;
+      const width = header.clientWidth;
+      setNarrow(width <= 640);
       const cs = getComputedStyle(header);
       const logo = header.querySelector<HTMLElement>('.s-logo');
       const actions = header.querySelector<HTMLElement>('.s-hdr-actions');
@@ -56,7 +64,7 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
       const linkW = kids.slice(0, links.length).map((el) => el.offsetWidth + 2);
       const conciergeW = (kids[kids.length - 1]?.offsetWidth ?? 0) + 6;
       const chrome = 8 + conciergeW;
-      const base = header.clientWidth - pad - gaps - (logo?.offsetWidth ?? 0) - (actions?.offsetWidth ?? 0) - 24;
+      const base = width - pad - gaps - (logo?.offsetWidth ?? 0) - (actions?.offsetWidth ?? 0) - 24;
       const count = (withBurger: boolean) => {
         let total = chrome + (withBurger ? 50 : 0);
         let k = 0;
@@ -69,7 +77,6 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
     const schedule = () => { if (!raf) raf = requestAnimationFrame(measure); };
     const ro = new ResizeObserver(schedule);
     ro.observe(header);
-    if (nav) ro.observe(nav);
     void document.fonts?.ready.then(schedule);
     return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
   }, [links.length]);
@@ -87,10 +94,20 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
     return () => document.removeEventListener('mousedown', handler);
   }, [settingsOpen]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false);
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [menuOpen]);
+
   const navigate = (target: View, anchor?: string) => {
     setMenuOpen(false);
     onNavigate(target, anchor);
   };
+
+  const display = userName || userEmail?.split('@')[0] || null;
+  const initial = display?.trim().charAt(0).toUpperCase() || 'C';
 
   return (
     <>
@@ -105,7 +122,7 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
           CELEC<span>.</span>
         </button>
 
-        <nav className="s-nav" aria-label="Navigation principale" ref={navRef}>
+        <nav className="s-nav" aria-label="Navigation principale">
           <div className="s-nav-mirror" ref={mirrorRef} aria-hidden="true">
             {links.map((link) => (
               <span key={link.label} className="s-nav-link" tabIndex={-1}>{link.label}</span>
@@ -121,14 +138,22 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
               </button>
             );
           })}
-          <button className="s-nav-concierge" onClick={onConcierge}>
+          <button className="s-nav-concierge" onClick={onConcierge} aria-label={t.navConcierge}>
             <Sparkles size={14} />
-            {t.navConcierge}
+            <span className="s-nav-concierge-label">{t.navConcierge}</span>
           </button>
         </nav>
 
         <div className="s-hdr-actions">
-          {account}
+          <AccountMenu
+            t={t}
+            userEmail={userEmail}
+            userName={userName}
+            onSignIn={onSignIn}
+            onSpace={onSpace}
+            onHistory={onHistory}
+            onLogout={onLogout}
+          />
 
           <div className="s-settings" ref={settingsRef}>
             <button
@@ -178,7 +203,7 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
             </AnimatePresence>
           </div>
 
-          <button className={`s-icon-btn s-burger ${collapsed ? 'is-needed' : ''}`} onClick={() => setMenuOpen((v) => !v)} aria-label="Menu" aria-expanded={menuOpen}>
+          <button className={`s-icon-btn s-burger ${collapsed || narrow ? 'is-needed' : ''}`} onClick={() => setMenuOpen((v) => !v)} aria-label="Menu" aria-expanded={menuOpen}>
             {menuOpen ? <X size={19} /> : <Menu size={19} />}
           </button>
         </div>
@@ -210,10 +235,66 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
               onClick={() => { setMenuOpen(false); onConcierge(); }}
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.32, duration: 0.5, ease: EASE_SOFT }}
+              transition={{ delay: 0.42, duration: 0.5, ease: EASE_SOFT }}
             >
               <Sparkles size={18} /> {t.navConcierge}
             </motion.button>
+
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.52, duration: 0.5, ease: EASE_SOFT }}
+            >
+              <span className="s-mobile-sec">{userEmail ? t.account.connected : t.account.signIn}</span>
+              {userEmail ? (
+                <>
+                  <div className="s-mobile-id">
+                    <span className="s-acct-avatar" aria-hidden="true">{initial}</span>
+                    <div className="s-mobile-id-text">
+                      <strong>{display}</strong>
+                      <small>{userEmail}</small>
+                    </div>
+                  </div>
+                  <button className="s-mobile-row" onClick={() => { setMenuOpen(false); onSpace(); }}>
+                    <UserRound size={17} /> {t.account.space}
+                  </button>
+                  <button className="s-mobile-row" onClick={() => { setMenuOpen(false); onHistory(); }}>
+                    <History size={17} /> {t.account.history}
+                  </button>
+                  <button className="s-mobile-row s-mobile-row--danger" onClick={() => { setMenuOpen(false); onLogout(); }}>
+                    <LogOut size={17} /> {t.account.logout}
+                  </button>
+                </>
+              ) : (
+                <button className="s-mobile-row" onClick={() => { setMenuOpen(false); onSignIn(); }}>
+                  <UserRound size={17} /> {t.account.signIn}
+                </button>
+              )}
+
+              <span className="s-mobile-sec">{t.language}</span>
+              <div className="s-lang-grid">
+                {languages.map((l) => (
+                  <button
+                    key={l.code}
+                    className={`s-lang ${lang === l.code ? 'is-active' : ''}`}
+                    onClick={() => { onLang(l.code); setMenuOpen(false); }}
+                  >
+                    <strong>{l.short}</strong>
+                    <span>{l.label}</span>
+                    {lang === l.code && <Check size={13} />}
+                  </button>
+                ))}
+              </div>
+              <button className="s-mobile-row" onClick={() => { onTheme(); setMenuOpen(false); }}>
+                {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
+                <span>{theme === 'light' ? t.themeDark : t.themeLight}</span>
+              </button>
+              {isAdmin && (
+                <button className="s-mobile-row s-mobile-row--accent" onClick={() => navigate('admin')}>
+                  <ShieldCheck size={17} /> Admin
+                </button>
+              )}
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

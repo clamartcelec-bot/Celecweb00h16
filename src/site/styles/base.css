@@ -182,6 +182,16 @@ html.dark .s-aura { opacity: 0.22; }
 .s-nav-mirror { position: absolute; visibility: hidden; pointer-events: none; display: flex; align-items: center; gap: 2px; height: 0; overflow: hidden; white-space: nowrap; }
 .s-nav-mirror .s-nav-link { height: auto; padding: 0 16px; }
 .s-nav-mirror .s-nav-concierge { display: inline-flex; margin: 0; }
+
+.s-mobile-sec { display: block; padding: 22px 4px 8px; font-family: var(--s-mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-muted); }
+.s-mobile-id { display: flex; align-items: center; gap: 12px; padding: 6px 4px 10px; }
+.s-mobile-id-text { display: grid; min-width: 0; }
+.s-mobile-id-text strong { font-size: 1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s-mobile-id-text small { font-size: 0.8rem; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s-mobile-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 8px; border-radius: 14px; font-size: 1rem; font-weight: 500; color: var(--s-ink); transition: background 0.3s; }
+.s-mobile-row:hover { background: var(--s-surface-2); }
+.s-mobile-row--danger { color: var(--s-error); }
+.s-mobile-row--accent { color: var(--s-accent); }
 .s-hdr-actions { display: flex; align-items: center; gap: 8px; }
 .s-acct-wrap { position: relative; }
 .s-acct { position: relative; display: inline-flex; align-items: center; gap: 10px; height: 42px; padding: 0 16px 0 4px; max-width: 210px; border-radius: 999px; font-size: 0.875rem; font-weight: 500; color: var(--s-ink); background: var(--s-glass); border: 1px solid var(--s-line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); transition: border-color 0.3s, box-shadow 0.4s var(--s-ease), background 0.3s; }
@@ -252,13 +262,17 @@ html.dark .s-aura { opacity: 0.22; }
 
 @media (max-width: 1080px) {
   .s-nav { flex-shrink: 1; min-width: 0; overflow: hidden; }
+  .s-nav-concierge { padding: 0 12px; }
+  .s-nav-concierge-label { display: none; }
+  .s-nav-concierge { width: 38px; justify-content: center; }
+  .s-nav-mirror .s-nav-concierge-label { display: none; }
 }
 @media (max-width: 560px) {
   .s-acct-label { display: none; }
   .s-acct { padding: 0 3px; }
   .s-hdr { padding-inline-start: 18px; gap: 8px; }
-  .s-nav { max-width: none; }
-  .s-nav-mirror .s-nav-concierge { display: none; }
+  .s-mobile-menu { padding-top: 84px; overflow-y: auto; max-height: calc(100dvh - 74px); }
+  .s-lang-grid { grid-template-columns: 1fr 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

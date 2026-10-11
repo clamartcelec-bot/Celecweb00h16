@@ -13,7 +13,6 @@ import { SiteFooter } from '@/site/components/SiteFooter';
 import { MapPage } from '@/site/map/MapPage';
 import { Hero } from '@/site/components/Hero';
 import { ClientHome } from '@/site/components/ClientHome';
-import { AccountMenu } from '@/site/components/AccountMenu';
 import { CarnetShowcase, PartnersStrip, StatsBand } from '@/site/components/HomeSections';
 import { FamiliesSection, TerritorySection } from '@/site/components/HomeFamilies';
 import { FamilyPage } from '@/site/pages/FamilyPage';
@@ -311,17 +310,12 @@ function App() {
         lang={lang}
         theme={theme}
         view={view}
-        account={
-          <AccountMenu
-            t={t}
-            userEmail={userEmail}
-            userName={userName}
-            onSignIn={() => setLoginOpen(true)}
-            onSpace={() => setClientSpace('overview')}
-            onHistory={() => setClientSpace('requests')}
-            onLogout={() => void logout()}
-          />
-        }
+        userEmail={userEmail}
+        userName={userName}
+        onSignIn={() => setLoginOpen(true)}
+        onSpace={() => setClientSpace('overview')}
+        onHistory={() => setClientSpace('requests')}
+        onLogout={() => void logout()}
         isAdmin={userRole === 'admin'}
         onLang={setLang}
         onTheme={() => setTheme((v) => (v === 'dark' ? 'light' : 'dark'))}
