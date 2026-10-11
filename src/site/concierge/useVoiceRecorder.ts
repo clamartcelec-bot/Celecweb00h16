@@ -4,19 +4,10 @@ export type RecorderError = 'denied' | 'unsupported' | 'no-device' | 'failed';
 export interface Recording { blob: Blob; mime: string; durationMs: number }
 
 const MAX_MS = 60_000;
-const MIC_OK_KEY = 'celec-mic-ok';
 
 function pickMime() {
   if (typeof MediaRecorder === 'undefined') return '';
   return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((m) => MediaRecorder.isTypeSupported(m)) ?? '';
-}
-
-export function micAlreadyExplained() {
-  try { return localStorage.getItem(MIC_OK_KEY) === '1'; } catch { return false; }
-}
-
-export function rememberMicExplained() {
-  try { localStorage.setItem(MIC_OK_KEY, '1'); } catch { /* storage unavailable */ }
 }
 
 export function useVoiceRecorder(onAutoStop: (rec: Recording | null) => void) {
@@ -61,7 +52,6 @@ export function useVoiceRecorder(onAutoStop: (rec: Recording | null) => void) {
       const name = (err as DOMException)?.name;
       return name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : name === 'NotFoundError' ? 'no-device' : 'failed';
     }
-    rememberMicExplained();
     const mime = pickMime();
     const rec = new MediaRecorder(media, mime ? { mimeType: mime } : undefined);
     stream.current = media;

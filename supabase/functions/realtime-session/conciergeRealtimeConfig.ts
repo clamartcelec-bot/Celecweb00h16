@@ -30,6 +30,22 @@ export const DEFAULT_CONCIERGE_VOICE = 'coral';
 export const CELEC_CONCIERGE_TOOLS: FunctionTool[] = [
   {
     type: 'function',
+    name: 'navigate',
+    description:
+      'Emmène le visiteur sur une page du site quand il le demande ou quand cette page répond mieux à sa question (« je vous y emmène »). Pour le carnet, tu peux préciser un sujet.',
+    parameters: {
+      type: 'object',
+      properties: {
+        view: { type: 'string', enum: ['home', 'carnet', 'map', 'partners', 'blocktech', 'entretien', 'family', 'contact'] },
+        family: { type: 'string', enum: ['electricite', 'confort', 'securite', 'reseau', 'energie'], description: 'Obligatoire si view = family.' },
+        topic: { type: 'string', description: 'Identifiant de sujet du carnet (liste fournie en contexte), seulement si view = carnet.' },
+      },
+      required: ['view'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
     name: 'update_client_panel',
     description: 'Met à jour les informations client affichées à l’écran dès qu’elles sont connues ou corrigées.',
     parameters: {
@@ -242,11 +258,15 @@ export function buildConciergeInstructions(settings: ConciergeSettings | null): 
   const sections: string[] = [prompt];
   const facts = (settings?.facts ?? []).filter((fact) => fact.key && fact.value);
 
-  if (greeting) {
-    sections.push(
-      `DÉBUT DE CONVERSATION\n- Au tout début de l'appel, avant toute autre chose, tu DOIS prononcer exactement cette phrase d'accueil, naturellement et sans la lire:\n« ${greeting} »\n- Ne dis rien d'autre avant cette phrase. Ne la récite pas mécaniquement : dis-la comme si tu accueillais quelqu'un qui vient d'arriver.\n- Après l'accueil, tu attends la réponse du client.`,
-    );
-  }
+  sections.push(
+    [
+      'FONCTIONNEMENT',
+      '- Tu es le petit robot qui accompagne le visiteur sur tout le site. Il te parle en restant appuyé sur toi, ou en t’écrivant. Le visiteur t’a déjà vu : ne te présente pas, réponds directement.',
+      greeting ? `- Si le visiteur dit seulement bonjour, tu peux t’inspirer de cette phrase d’accueil : « ${greeting} »` : '',
+      '- Tu réponds vite et court : une ou deux phrases, puis tu laisses la parole.',
+      '- Tu connais le site : le contexte te donne la page où se trouve le visiteur, la liste des réalisations du carnet, des marques et des sujets. Appuie-toi d’abord sur ces contenus : montre une réalisation, emmène sur la bonne page (navigate), plutôt que de répondre de façon générale.',
+    ].filter(Boolean).join('\n'),
+  );
 
   if (tone) sections.push(`TON\n- ${tone.replace(/\n+/g, '\n- ')}`);
   if (siteInfo) sections.push(`INFORMATIONS DU SITE (à citer oralement, sans afficher de carte)\n${siteInfo}`);
@@ -313,7 +333,8 @@ export function createConciergeRealtimeSession(
     instructions: buildConciergeInstructions(settings ?? null),
     audio: {
       input: {
-        transcription: { model: 'gpt-4o-mini-transcribe' },
+        transcription: { model: 'gpt-4o-mini-transcribe', language: 'fr' },
+        turn_detection: null,
       },
       output: { voice: voice || DEFAULT_CONCIERGE_VOICE },
     },

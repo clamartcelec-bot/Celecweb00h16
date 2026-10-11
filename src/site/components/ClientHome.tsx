@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useState, type PointerEvent, type ReactNode } from 'react';
 import { animate, motion, useReducedMotion } from 'motion/react';
 import { ArrowUpRight, FileText, History, Loader2, MessageSquare, Mic, PhoneCall, Plus } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -106,7 +106,7 @@ interface Props {
   t: Copy;
   lang: Lang;
   name: string;
-  onConcierge: (origin?: { x: number; y: number }) => void;
+  onConcierge: () => void;
   onCallback: () => void;
   onHistory: () => void;
   onRequest: () => void;
@@ -119,7 +119,6 @@ export function ClientHome({ t, lang, name, onConcierge, onCallback, onHistory, 
   const now = new Date();
   const hello = now.getHours() >= 18 ? t.me.evening : t.me.morning;
   const today = now.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' });
-  const robotLines = useMemo(() => t.me.robotLines.map((l) => l.replace('{name}', name)), [t, name]);
   const fmt = (d: string) => new Date(d).toLocaleDateString(locale, { day: 'numeric', month: 'short' });
 
   const stats = data
@@ -199,7 +198,7 @@ export function ClientHome({ t, lang, name, onConcierge, onCallback, onHistory, 
         </motion.div>
 
         <div className="s-me-robot">
-          <HomeRobot lines={robotLines} cta={t.me.robotCta} hint={t.me.robotHint} onEnter={onConcierge} />
+          <HomeRobot hint={t.me.robotHint} />
         </div>
       </div>
 

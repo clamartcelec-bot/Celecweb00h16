@@ -15,10 +15,9 @@ interface Props {
   onCategory: (category: ContactCategory) => void;
   onMap: () => void;
   onOpenEntry: (entry: Photo) => void;
-  onConcierge: (origin: { x: number; y: number }) => void;
 }
 
-export function Hero({ t, photos, onCallback, onSeeWork, onCategory, onMap, onOpenEntry, onConcierge }: Props) {
+export function Hero({ t, photos, onCallback, onSeeWork, onCategory, onMap, onOpenEntry }: Props) {
   const ref = useRef<HTMLElement>(null);
   const reduce = useReducedMotion();
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
@@ -129,7 +128,7 @@ export function Hero({ t, photos, onCallback, onSeeWork, onCategory, onMap, onOp
           </div>
         )}
 
-        <HomeRobot lines={t.robotLines} cta={t.robotCta} hint={t.robotHint} onEnter={onConcierge} />
+        <HomeRobot hint={t.robotHint} />
       </div>
 
       <motion.div

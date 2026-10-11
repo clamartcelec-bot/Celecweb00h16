@@ -1,24 +1,20 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { AlertCircle, ArrowUp, Handshake, Loader2, Mic, Square, Volume2, VolumeX, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { AlertCircle, ArrowUp, Handshake, Mic, Volume2, VolumeX, X } from 'lucide-react';
 import type { ConciergeApi, ConciergeTurn } from '@/site/concierge/useConcierge';
-import type { useTalk } from '@/site/concierge/useTalk';
+import { usePressToTalk } from '@/site/concierge/usePressToTalk';
 import type { Partner, Photo } from '@/site/types';
 
 interface Props {
   api: ConciergeApi;
-  talk: ReturnType<typeof useTalk>;
-  onSendText: (text: string) => void;
   photos: Photo[];
   partners: Partner[];
   onOpenEntry: (entry: Photo) => void;
   onOpenPartner: (partner: Partner) => void;
-  emptyHint?: string;
-  limit?: number;
 }
 
-const PHASE_LABEL = { ready: 'Prêt', recording: 'Je vous écoute…', thinking: 'Je réfléchis…', speaking: 'Je réponds' } as const;
+const PHASE_LABEL = { ready: 'Prêt', connecting: 'Connexion…', listening: 'Je vous écoute…', thinking: 'Je réfléchis…', speaking: 'Je réponds' } as const;
 
-function TurnCards({ turn, photos, partners, onOpenEntry, onOpenPartner }: { turn: ConciergeTurn } & Pick<Props, 'photos' | 'partners' | 'onOpenEntry' | 'onOpenPartner'>) {
+function TurnCards({ turn, photos, partners, onOpenEntry, onOpenPartner }: { turn: ConciergeTurn } & Omit<Props, 'api'>) {
   const entries = (turn.actions ?? []).flatMap((a) => (a.type === 'show_entries' ? a.ids : []))
     .map((id) => photos.find((p) => p.id === id)).filter((p): p is Photo => Boolean(p));
   const partner = (turn.actions ?? []).flatMap((a) => (a.type === 'show_partner' ? [a.id] : []))
@@ -42,24 +38,27 @@ function TurnCards({ turn, photos, partners, onOpenEntry, onOpenPartner }: { tur
   );
 }
 
-export function ConciergeThread({ api, talk, onSendText, photos, partners, onOpenEntry, onOpenPartner, emptyHint, limit }: Props) {
+export function ConciergeThread({ api, photos, partners, onOpenEntry, onOpenPartner }: Props) {
   const [draft, setDraft] = useState('');
+  const [hint, setHint] = useState(false);
   const list = useRef<HTMLDivElement>(null);
-  const shown = limit ? api.turns.slice(-limit) : api.turns;
+  const lastText = api.turns[api.turns.length - 1]?.text;
+  const live = api.caption?.role === 'assistant' && api.phase !== 'ready' && api.caption.text.trim() !== lastText ? api.caption.text : '';
+  const talk = usePressToTalk(api, useCallback(() => setHint(true), []));
 
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight, behavior: 'smooth' });
-  }, [api.turns.length, api.pending, api.error]);
+  }, [api.turns.length, live, api.error]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const text = draft.trim();
-    if (!text || api.phase === 'thinking') return;
+    if (!text) return;
     setDraft('');
-    onSendText(text);
+    void api.sendText(text);
   };
 
-  const busy = api.phase === 'thinking';
+  const listening = api.phase === 'listening';
 
   return (
     <div className="s-cx-thread">
@@ -77,25 +76,16 @@ export function ConciergeThread({ api, talk, onSendText, photos, partners, onOpe
       </div>
 
       <div className="s-cx-list" ref={list}>
-        {shown.length === 0 && !api.pending && <p className="s-cx-empty">{emptyHint ?? 'Posez votre question : une panne, un projet, nos réalisations…'}</p>}
-        {shown.map((turn, i) => (
-          <div key={`${turn.at}-${i}`} className={`s-cx-msg is-${turn.role}`}>
-            <p>{turn.text}</p>
+        {api.turns.length === 0 && (
+          <p className="s-cx-empty">Bonjour ! Je peux vous montrer nos réalisations, vous emmener sur la bonne page ou préparer une demande de rappel.</p>
+        )}
+        {api.turns.map((turn, i) => (
+          <div key={turn.id ?? `${turn.at}-${i}`} className={`s-cx-msg is-${turn.role}`}>
+            <p>{turn.text || <span className="s-dock-dots" aria-label="Transcription en cours"><i /><i /><i /></span>}</p>
             {turn.role === 'assistant' && <TurnCards turn={turn} photos={photos} partners={partners} onOpenEntry={onOpenEntry} onOpenPartner={onOpenPartner} />}
           </div>
         ))}
-        {api.pending && (
-          <>
-            {api.pending !== '…' && <div className="s-cx-msg is-user"><p>{api.pending}</p></div>}
-            <div className="s-cx-msg is-assistant is-pending">
-              <Loader2 size={15} className="s-spin" /> Je prépare la réponse…
-              <button className="s-link s-link--muted" onClick={api.cancel}>Annuler</button>
-            </div>
-          </>
-        )}
-        {api.replay && (
-          <button className="s-cx-listen" onClick={api.listen}><Volume2 size={15} /> Écouter la réponse</button>
-        )}
+        {live && <div className="s-cx-msg is-assistant is-live"><p>{live}</p></div>}
         {api.error && (
           <div className="s-cx-error" role="alert">
             <AlertCircle size={15} /><span>{api.error}</span>
@@ -107,28 +97,23 @@ export function ConciergeThread({ api, talk, onSendText, photos, partners, onOpe
       <form className="s-cx-compose" onSubmit={submit}>
         <input
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={talk.recording ? 'Enregistrement en cours…' : 'Écrire au robot…'}
+          onChange={(e) => { setDraft(e.target.value); setHint(false); }}
+          placeholder={listening ? 'Je vous écoute…' : hint ? 'Restez appuyé sur le micro pour parler' : 'Écrire au robot…'}
           enterKeyHint="send"
-          disabled={talk.recording}
           maxLength={1000}
           aria-label="Votre message"
         />
         {draft.trim() ? (
-          <button type="submit" className="s-cx-send" disabled={busy} aria-label="Envoyer"><ArrowUp size={18} /></button>
+          <button type="submit" className="s-cx-send" aria-label="Envoyer"><ArrowUp size={18} /></button>
         ) : (
           <button
             type="button"
-            className={`s-cx-send ${talk.recording ? 'is-rec' : ''}`}
-            onClick={() => (talk.recording ? void talk.finish() : void talk.begin())}
-            aria-label={talk.recording ? 'Arrêter et envoyer' : 'Démarrer l’enregistrement'}
-            aria-pressed={talk.recording}
+            className={`s-cx-send s-cx-hold ${listening ? 'is-rec' : ''} ${talk.far ? 'is-far' : ''}`}
+            aria-label="Restez appuyé pour parler"
+            {...talk.handlers}
           >
-            {talk.recording ? <Square size={14} /> : <Mic size={17} />}
+            <Mic size={17} />
           </button>
-        )}
-        {talk.recording && (
-          <button type="button" className="s-link s-link--muted" onClick={talk.abort}>Annuler</button>
         )}
       </form>
     </div>

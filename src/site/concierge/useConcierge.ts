@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import type { Partner, Photo } from '@/site/types';
+import { loadCompanyFacts, type CompanyFact } from '@/concierge/services/companyFacts';
+import { openRealtimeLink, type MicError, type RealtimeEvent, type RealtimeLink } from './realtimeLink';
+import { buildSiteContext, describePage, runTool, type RequestDraft, type Stage } from './conciergeTools';
 
 export type ConciergeAction =
   | { type: 'navigate'; view: string; family?: string }
@@ -8,23 +12,32 @@ export type ConciergeAction =
   | { type: 'show_partner'; id: string }
   | { type: 'prefill_contact'; category: 'depannage' | 'chantier' | 'projet'; first_name: string; phone: string; commune: string; description: string };
 
-export interface ConciergeTurn { role: 'user' | 'assistant'; text: string; at: string; actions?: ConciergeAction[] }
-export type ConciergePhase = 'ready' | 'recording' | 'thinking' | 'speaking';
+export interface ConciergeTurn { id?: string; role: 'user' | 'assistant'; text: string; at: string; actions?: ConciergeAction[] }
+export type ConciergePhase = 'ready' | 'connecting' | 'listening' | 'thinking' | 'speaking';
 export interface ConciergeContext { page: string; family?: string; topic?: string | null }
 
+interface Options {
+  photos: Photo[];
+  partners: Partner[];
+  userEmail: string | null;
+  context: () => ConciergeContext;
+  onActions: (actions: ConciergeAction[]) => void;
+}
+
 const STORE_KEY = 'celec-concierge-session';
+const MUTED_KEY = 'celec-concierge-muted';
 const RETENTION_MS = 90 * 86_400_000;
+const IDLE_CLOSE_MS = 4 * 60_000;
+const MIC_RELEASE_MS = 45_000;
+const MIN_TALK_MS = 450;
 const ENDPOINT = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/concierge-turn`;
 const ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-const ERRORS: Record<string, string> = {
-  empty_transcript: 'Je n’ai rien entendu. Restez appuyé un peu plus longtemps en parlant.',
-  transcription_failed: 'Je n’ai pas réussi à comprendre l’enregistrement. Réessayez ou écrivez-moi.',
-  rate_limited: 'Doucement ! Laissez-moi une petite minute avant la prochaine question.',
-  too_large: 'Le message est trop long. Essayez en plus court.',
-  ai_unavailable: 'L’assistant est momentanément indisponible. Vous pouvez nous écrire via le formulaire de contact.',
-  ai_failed: 'Je n’ai pas pu répondre cette fois. Réessayez dans un instant.',
-  network: 'Pas de connexion. Vérifiez votre réseau puis réessayez.',
+const MIC_ERRORS: Record<MicError, string> = {
+  denied: 'Le micro est bloqué. Autorisez-le dans votre navigateur, ou écrivez-moi.',
+  unsupported: 'Votre navigateur ne permet pas la voix. Vous pouvez m’écrire.',
+  'no-device': 'Aucun micro détecté. Vous pouvez m’écrire.',
+  failed: 'Le micro n’a pas démarré. Réessayez ou écrivez-moi.',
 };
 
 interface Session { key: string; token: string; created: number }
@@ -61,67 +74,342 @@ async function bearer() {
   return data.session?.access_token ?? ANON;
 }
 
-export function useConcierge(onActions: (actions: ConciergeAction[]) => void) {
+const systemItem = (text: string) => ({
+  type: 'conversation.item.create',
+  item: { type: 'message', role: 'system', content: [{ type: 'input_text', text }] },
+});
+
+export function useConcierge({ photos, partners, userEmail, context, onActions }: Options) {
   const session = useRef<Session>(readSession());
   const [turns, setTurns] = useState<ConciergeTurn[]>([]);
-  const [phase, setPhase] = useState<ConciergePhase>('ready');
+  const [phase, setPhaseState] = useState<ConciergePhase>('ready');
+  const [caption, setCaption] = useState<{ role: 'user' | 'assistant'; text: string } | null>(null);
+  const [stage, setStage] = useState<Stage | null>(null);
+  const [draft, setDraft] = useState<RequestDraft>({});
+  const [appointment, setAppointmentState] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
-  const [muted, setMutedState] = useState(() => { try { return localStorage.getItem('celec-concierge-muted') === '1'; } catch { return false; } });
-  const [replay, setReplay] = useState<string | null>(null);
-  const audio = useRef<HTMLAudioElement | null>(null);
-  const requestSeq = useRef(0);
-  const controller = useRef<AbortController | null>(null);
-  const userId = useRef<string | null | undefined>(undefined);
-  const actionsRef = useRef(onActions);
-  actionsRef.current = onActions;
+  const [muted, setMutedState] = useState(() => { try { return localStorage.getItem(MUTED_KEY) === '1'; } catch { return false; } });
 
-  const call = useCallback(async (payload: Record<string, unknown>, signal?: AbortSignal, retried = false): Promise<Record<string, unknown>> => {
+  const latest = useRef({ photos, partners, userEmail, context, onActions, turns, draft, muted });
+  latest.current = { photos, partners, userEmail, context, onActions, turns, draft, muted };
+
+  const link = useRef<RealtimeLink | null>(null);
+  const connecting = useRef<Promise<RealtimeLink | null> | null>(null);
+  const facts = useRef<CompanyFact[]>([]);
+  const phaseRef = useRef<ConciergePhase>('ready');
+  const talking = useRef<{ started: number; open: boolean } | null>(null);
+  const speaking = useRef(false);
+  const responding = useRef(false);
+  const liveText = useRef('');
+  const pendingActions = useRef<ConciergeAction[]>([]);
+  const lastPage = useRef('');
+  const idleTimer = useRef<number>();
+  const micTimer = useRef<number>();
+  const userId = useRef<string | null | undefined>(undefined);
+  const handleEvent = useRef<(e: RealtimeEvent) => void>(() => {});
+
+  const setPhase = useCallback((p: ConciergePhase) => {
+    phaseRef.current = p;
+    setPhaseState(p);
+  }, []);
+
+  const call = useCallback(async (payload: Record<string, unknown>, retried = false): Promise<Record<string, unknown>> => {
     let res: Response;
     try {
       res = await fetch(ENDPOINT, {
         method: 'POST',
-        signal,
         headers: { 'Content-Type': 'application/json', apikey: ANON, Authorization: `Bearer ${await bearer()}` },
         body: JSON.stringify({ ...payload, session_key: session.current.key, token: session.current.token }),
       });
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') throw err;
+    } catch {
       throw new Error('network');
     }
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (res.status === 409 && !retried) {
       session.current = newSession();
-      return call(payload, signal, true);
+      return call(payload, true);
     }
-    if (!res.ok) throw new Error(typeof body.error === 'string' ? body.error : 'ai_failed');
+    if (!res.ok) throw new Error(typeof body.error === 'string' ? body.error : 'failed');
     return body;
   }, []);
 
-  const stopAudio = useCallback(() => {
-    audio.current?.pause();
-    audio.current = null;
-    setPhase((p) => (p === 'speaking' ? 'ready' : p));
-  }, []);
-
-  const playAudio = useCallback((src: string) => {
-    stopAudio();
-    const el = new Audio(src);
-    audio.current = el;
-    el.onended = () => { if (audio.current === el) { audio.current = null; setPhase('ready'); } };
-    setPhase('speaking');
-    el.play().then(() => setReplay(null)).catch(() => {
-      if (audio.current === el) audio.current = null;
-      setReplay(src);
-      setPhase('ready');
-    });
-  }, [stopAudio]);
+  const persist = useCallback((turn: ConciergeTurn) => {
+    if (!turn.text.trim()) return;
+    void call({ action: 'append', page: latest.current.context().page, turns: [{ role: turn.role, text: turn.text, actions: turn.actions }] }).catch(() => {});
+  }, [call]);
 
   const load = useCallback(async () => {
     try {
       const body = await call({ action: 'load' });
       setTurns(Array.isArray(body.turns) ? (body.turns as ConciergeTurn[]) : []);
-    } catch { /* history is optional: start empty */ }
+    } catch { /* history is optional */ }
+  }, [call]);
+
+  const closeLink = useCallback(() => {
+    link.current?.close();
+    link.current = null;
+    connecting.current = null;
+    talking.current = null;
+    speaking.current = false;
+    responding.current = false;
+    window.clearTimeout(idleTimer.current);
+    window.clearTimeout(micTimer.current);
+    if (phaseRef.current !== 'ready') setPhase('ready');
+  }, [setPhase]);
+
+  const touch = useCallback(() => {
+    window.clearTimeout(idleTimer.current);
+    idleTimer.current = window.setTimeout(closeLink, IDLE_CLOSE_MS);
+  }, [closeLink]);
+
+  const connect = useCallback(async () => {
+    if (link.current) return link.current;
+    if (connecting.current) return connecting.current;
+    connecting.current = (async () => {
+      try {
+        if (!facts.current.length) void loadCompanyFacts().then((f) => { facts.current = f; });
+        const l = await openRealtimeLink((e) => handleEvent.current(e), () => {
+          if (link.current === l) closeLink();
+        }, latest.current.muted);
+        const { context: ctx, photos: ph, partners: pa, turns: tu } = latest.current;
+        l.send(systemItem(buildSiteContext(ctx(), ph, pa, tu)));
+        lastPage.current = describePage(ctx());
+        link.current = l;
+        touch();
+        return l;
+      } catch {
+        setError('Je n’arrive pas à me connecter. Vérifiez votre réseau, ou écrivez-nous via le formulaire.');
+        return null;
+      } finally {
+        connecting.current = null;
+      }
+    })();
+    return connecting.current;
+  }, [closeLink, touch]);
+
+  const syncPage = useCallback((l: RealtimeLink) => {
+    const page = describePage(latest.current.context());
+    if (page !== lastPage.current) {
+      lastPage.current = page;
+      l.send(systemItem(`Le visiteur est maintenant sur ${page}.`));
+    }
+  }, []);
+
+  const interrupt = useCallback((l: RealtimeLink) => {
+    if (responding.current) l.send({ type: 'response.cancel' });
+    if (speaking.current) l.send({ type: 'output_audio_buffer.clear' });
+    speaking.current = false;
+  }, []);
+
+  const finishAssistant = useCallback(() => {
+    const text = liveText.current.trim();
+    liveText.current = '';
+    const actions = pendingActions.current;
+    if (!text && !actions.length) return;
+    pendingActions.current = [];
+    const turn: ConciergeTurn = { role: 'assistant', text: text || 'Voici.', at: new Date().toISOString(), actions: actions.length ? actions : undefined };
+    setTurns((t) => [...t, turn]);
+    persist(turn);
+  }, [persist]);
+
+  const respondToTools = useCallback(async (calls: { name: string; call_id: string; arguments: string }[]) => {
+    const l = link.current;
+    if (!l) return;
+    const env = {
+      ...latest.current,
+      facts: facts.current,
+      show: (s: Stage) => setStage(s),
+      act: (a: ConciergeAction) => {
+        if (a.type === 'show_entries' || a.type === 'show_partner') pendingActions.current.push(a);
+        else latest.current.onActions([a]);
+      },
+      patchDraft: (p: Partial<RequestDraft>) => setDraft((d) => {
+        const next = { ...d, ...p };
+        latest.current.draft = next;
+        return next;
+      }),
+      setAppointment: (on: boolean) => setAppointmentState(on),
+    };
+    for (const c of calls) {
+      let args: Record<string, unknown> = {};
+      try { args = JSON.parse(c.arguments || '{}') as Record<string, unknown>; } catch { /* empty args */ }
+      const output = await runTool(c.name, args, env);
+      l.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: c.call_id, output: JSON.stringify(output) } });
+    }
+    syncPage(l);
+    l.send({ type: 'response.create' });
+  }, [syncPage]);
+
+  handleEvent.current = (e: RealtimeEvent) => {
+    touch();
+    switch (e.type) {
+      case 'input_audio_buffer.committed':
+        setTurns((t) => [...t, { id: String(e.item_id), role: 'user', text: '', at: new Date().toISOString() }]);
+        break;
+      case 'conversation.item.input_audio_transcription.completed': {
+        const text = String(e.transcript ?? '').trim();
+        const id = String(e.item_id);
+        setTurns((t) => t.map((x) => (x.id === id ? { ...x, text: text || '…' } : x)));
+        if (text) {
+          persist({ role: 'user', text, at: new Date().toISOString() });
+          if (!liveText.current) setCaption({ role: 'user', text });
+        }
+        break;
+      }
+      case 'conversation.item.input_audio_transcription.failed':
+        setTurns((t) => t.map((x) => (x.id === String(e.item_id) ? { ...x, text: '…' } : x)));
+        break;
+      case 'response.created':
+        responding.current = true;
+        if (!speaking.current) setPhase('thinking');
+        break;
+      case 'response.output_audio_transcript.delta':
+      case 'response.audio_transcript.delta':
+      case 'response.output_text.delta':
+      case 'response.text.delta':
+        liveText.current += String(e.delta ?? '');
+        setCaption({ role: 'assistant', text: liveText.current });
+        break;
+      case 'output_audio_buffer.started':
+        speaking.current = true;
+        if (!talking.current) setPhase('speaking');
+        break;
+      case 'output_audio_buffer.stopped':
+      case 'output_audio_buffer.cleared':
+        speaking.current = false;
+        if (!talking.current && !responding.current) setPhase('ready');
+        break;
+      case 'response.done': {
+        responding.current = false;
+        const response = (e.response ?? {}) as { output?: { type: string; name?: string; call_id?: string; arguments?: string }[] };
+        const calls = (response.output ?? []).filter((o) => o.type === 'function_call' && o.name && o.call_id) as { name: string; call_id: string; arguments: string }[];
+        if (calls.length) {
+          void respondToTools(calls);
+          break;
+        }
+        finishAssistant();
+        if (!speaking.current && !talking.current) setPhase('ready');
+        break;
+      }
+      case 'error': {
+        const err = (e.error ?? {}) as { code?: string; message?: string };
+        if (err.code === 'response_cancel_not_active' || err.code === 'conversation_already_has_active_response') break;
+        if (err.code === 'input_audio_buffer_commit_empty') setError('Je n’ai rien entendu. Restez appuyé en parlant.');
+        else setError('Petit souci de mon côté. Réessayez dans un instant.');
+        if (!speaking.current) setPhase('ready');
+        break;
+      }
+    }
+  };
+
+  const startTalking = useCallback(async () => {
+    setError(null);
+    talking.current = { started: Date.now(), open: false };
+    setPhase('connecting');
+    const l = await connect();
+    if (!l || !talking.current) {
+      if (!talking.current) return;
+      talking.current = null;
+      setPhase('ready');
+      return;
+    }
+    const micErr = await l.attachMic();
+    if (micErr) {
+      talking.current = null;
+      setError(MIC_ERRORS[micErr]);
+      setPhase('ready');
+      return;
+    }
+    if (!talking.current) return;
+    window.clearTimeout(micTimer.current);
+    interrupt(l);
+    l.send({ type: 'input_audio_buffer.clear' });
+    l.setMicOpen(true);
+    talking.current = { started: Date.now(), open: true };
+    liveText.current = '';
+    setCaption(null);
+    setStage((s) => (s?.kind === 'request' ? s : null));
+    setPhase('listening');
+  }, [connect, interrupt, setPhase]);
+
+  const stopTalking = useCallback((send = true) => {
+    const t = talking.current;
+    talking.current = null;
+    const l = link.current;
+    if (!t) return;
+    if (!t.open || !l) {
+      setPhase('ready');
+      return;
+    }
+    l.setMicOpen(false);
+    window.clearTimeout(micTimer.current);
+    micTimer.current = window.setTimeout(() => link.current?.releaseMic(), MIC_RELEASE_MS);
+    if (!send || Date.now() - t.started < MIN_TALK_MS) {
+      l.send({ type: 'input_audio_buffer.clear' });
+      if (send) setError('C’était un peu court : restez appuyé pendant que vous parlez.');
+      setPhase('ready');
+      return;
+    }
+    syncPage(l);
+    l.send({ type: 'input_audio_buffer.commit' });
+    l.send({ type: 'response.create' });
+    setPhase('thinking');
+  }, [setPhase, syncPage]);
+
+  const sendText = useCallback(async (raw: string) => {
+    const text = raw.trim().slice(0, 1200);
+    if (!text) return;
+    setError(null);
+    const turn: ConciergeTurn = { role: 'user', text, at: new Date().toISOString() };
+    setTurns((t) => [...t, turn]);
+    persist(turn);
+    setCaption({ role: 'user', text });
+    setPhase('thinking');
+    const l = await connect();
+    if (!l) {
+      setPhase('ready');
+      return;
+    }
+    interrupt(l);
+    liveText.current = '';
+    syncPage(l);
+    l.send({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
+    l.send({ type: 'response.create' });
+  }, [connect, interrupt, persist, setPhase, syncPage]);
+
+  const stopSpeaking = useCallback(() => {
+    if (link.current) interrupt(link.current);
+    finishAssistant();
+    setPhase('ready');
+  }, [finishAssistant, interrupt, setPhase]);
+
+  const setMuted = useCallback((value: boolean) => {
+    setMutedState(value);
+    link.current?.setMuted(value);
+    try { localStorage.setItem(MUTED_KEY, value ? '1' : '0'); } catch { /* ignore */ }
+  }, []);
+
+  const restart = useCallback(async (mode: 'reset' | 'delete') => {
+    closeLink();
+    try {
+      await call({ action: mode });
+    } catch {
+      setError('Impossible de joindre le serveur pour le moment. Réessayez.');
+      return false;
+    }
+    session.current = newSession();
+    setTurns([]);
+    setCaption(null);
+    setStage(null);
+    setDraft({});
+    setAppointmentState(false);
+    setError(null);
+    return true;
+  }, [call, closeLink]);
+
+  const transcribe = useCallback(async (blob: Blob, mime: string) => {
+    const body = await call({ action: 'transcribe', audio_base64: await blobToBase64(blob), audio_mime: mime });
+    return typeof body.transcript === 'string' ? body.transcript : '';
   }, [call]);
 
   useEffect(() => {
@@ -138,90 +426,30 @@ export function useConcierge(onActions: (actions: ConciergeAction[]) => void) {
       userId.current = next;
       (async () => {
         if (prev && !next) {
+          closeLink();
           session.current = newSession();
           setTurns([]);
-          setReplay(null);
+          setDraft({});
         }
         await load();
       })();
     });
     return () => sub.subscription.unsubscribe();
-  }, [load]);
+  }, [load, closeLink]);
 
-  const send = useCallback(async (input: { text?: string; audio?: Blob; mime?: string }, context: ConciergeContext) => {
-    controller.current?.abort();
-    const ctrl = new AbortController();
-    controller.current = ctrl;
-    const seq = ++requestSeq.current;
-    stopAudio();
-    setError(null);
-    setReplay(null);
-    setPending(input.text?.trim() || '…');
-    setPhase('thinking');
-    try {
-      const body = await call({
-        action: 'turn',
-        text: input.text?.trim() || undefined,
-        audio_base64: input.audio ? await blobToBase64(input.audio) : undefined,
-        audio_mime: input.mime,
-        speak: !muted,
-        context: { page: context.page, family: context.family ?? '', topic: context.topic ?? '' },
-      }, ctrl.signal);
-      if (seq !== requestSeq.current) return;
-      const at = typeof body.at === 'string' ? body.at : new Date().toISOString();
-      const reply = typeof body.reply === 'string' ? body.reply : '';
-      const actions = Array.isArray(body.actions) ? (body.actions as ConciergeAction[]) : [];
-      setTurns((t) => [...t, { role: 'user', text: String(body.transcript ?? input.text ?? ''), at }, { role: 'assistant', text: reply, at, actions }]);
-      setPending(null);
-      setPhase('ready');
-      if (actions.length) actionsRef.current(actions);
-      if (typeof body.audio_base64 === 'string' && body.audio_base64) playAudio(`data:audio/mpeg;base64,${body.audio_base64}`);
-    } catch (err) {
-      if ((err as Error).name === 'AbortError' || seq !== requestSeq.current) return;
-      setPending(null);
-      setPhase('ready');
-      setError(ERRORS[(err as Error).message] ?? 'Un souci est survenu. Réessayez dans un instant.');
-    }
-  }, [call, muted, playAudio, stopAudio]);
-
-  const cancel = useCallback(() => {
-    requestSeq.current++;
-    controller.current?.abort();
-    setPending(null);
-    setPhase('ready');
-  }, []);
-
-  const restart = useCallback(async (mode: 'reset' | 'delete') => {
-    cancel();
-    stopAudio();
-    try {
-      await call({ action: mode });
-    } catch {
-      setError('Impossible de joindre le serveur pour le moment. Réessayez.');
-      return false;
-    }
-    session.current = newSession();
-    setTurns([]);
-    setReplay(null);
-    setError(null);
-    return true;
-  }, [call, cancel, stopAudio]);
-
-  const setMuted = useCallback((value: boolean) => {
-    setMutedState(value);
-    try { localStorage.setItem('celec-concierge-muted', value ? '1' : '0'); } catch { /* ignore */ }
-    if (value) stopAudio();
-  }, [stopAudio]);
-
-  const transcribe = useCallback(async (blob: Blob, mime: string) => {
-    const body = await call({ action: 'transcribe', audio_base64: await blobToBase64(blob), audio_mime: mime });
-    return typeof body.transcript === 'string' ? body.transcript : '';
-  }, [call]);
+  useEffect(() => closeLink, [closeLink]);
 
   return {
-    turns, phase, transcribe, error, pending, muted, replay,
-    setPhase, setError, send, cancel, setMuted, stopAudio,
-    listen: () => replay && playAudio(replay),
+    turns, phase, caption, stage, draft, appointment, error, muted,
+    setError, setMuted, transcribe, sendText, startTalking, stopTalking, stopSpeaking,
+    preconnect: () => { void connect(); },
+    dismissStage: () => setStage(null),
+    clearCaption: () => setCaption(null),
+    endAppointment: () => {
+      setAppointmentState(false);
+      link.current?.send(systemItem('Le visiteur a quitté la prise de rendez-vous (end_appointment_flow déjà fait).'));
+    },
+    level: () => (phaseRef.current === 'listening' ? link.current?.inputLevel() ?? 0 : link.current?.outputLevel() ?? 0),
     newConversation: () => restart('reset'),
     clearHistory: () => restart('delete'),
   };

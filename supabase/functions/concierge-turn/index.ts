@@ -8,22 +8,11 @@ const corsHeaders = {
 
 const MAX_BODY = 4_000_000;
 const MAX_TURNS = 200;
-const HISTORY_FOR_MODEL = 12;
-const TURNS_PER_MINUTE = 8;
+const APPENDS_PER_MINUTE = 30;
 const RETENTION_DAYS = 90;
 
-const VIEWS = ["home", "family", "entretien", "map", "carnet", "partners", "blocktech", "contact"];
-const FAMILIES = ["electricite", "confort", "securite", "reseau", "energie"];
-const TOPICS = [
-  "depannage", "tableau", "prises", "renovation", "projet", "eclairage", "domotique", "volets", "chauffage",
-  "alarme", "video", "acces", "portail", "reseau-local", "supervision", "recharge", "suivi-conso", "puissance",
-  "photovoltaique", "entretien",
-];
-const CATEGORIES = ["depannage", "chantier", "projet"];
-const VOICES = ["alloy", "ash", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"];
-
 type Json = Record<string, unknown>;
-type Turn = { role: "user" | "assistant"; text: string; at: string; actions?: unknown[] };
+type Turn = { role: "user" | "assistant"; text: string; at: string; actions?: Json[] };
 type Row = { id: string; write_token_hash: string | null; profile_id: string | null; transcript: Turn[] | null; client_name: string | null; client_phone: string | null };
 
 function json(body: Json, status = 200) {
@@ -32,10 +21,6 @@ function json(body: Json, status = 200) {
 
 function str(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
-}
-
-function normalize(value: string) {
-  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 async function sha256(value: string) {
@@ -54,9 +39,7 @@ function publicTurns(transcript: Turn[] | null) {
 async function findConversation(service: SupabaseClient, userId: string | null, sessionKey: string, tokenHash: string) {
   const now = new Date().toISOString();
   const cols = "id, write_token_hash, profile_id, transcript, client_name, client_phone";
-  const { data: guest } = sessionKey
-    ? await service.from("concierge_conversations").select(`${cols}, ended_at, expires_at, mode`).eq("session_key", sessionKey).maybeSingle()
-    : { data: null };
+  const { data: guest } = await service.from("concierge_conversations").select(`${cols}, ended_at, expires_at, mode`).eq("session_key", sessionKey).maybeSingle();
   const found = guest as (Row & { ended_at: string | null; expires_at: string; mode: string }) | null;
   if (found) {
     const owns = found.profile_id ? found.profile_id === userId : found.write_token_hash === tokenHash;
@@ -84,101 +67,38 @@ async function transcribe(key: string, base64: string, mime: string) {
   const ext = mime.includes("mp4") || mime.includes("m4a") ? "m4a" : mime.includes("ogg") ? "ogg" : mime.includes("wav") ? "wav" : "webm";
   const fd = new FormData();
   fd.set("file", new File([bytes], `voice.${ext}`, { type: mime || "audio/webm" }));
-  fd.set("model", "whisper-1");
+  fd.set("model", "gpt-4o-mini-transcribe");
   fd.set("language", "fr");
   fd.set("prompt", "CELEC, électricien à Clamart, Meudon, Issy-les-Moulineaux. Tableau électrique, disjoncteur, Ajax, BlockTech, borne de recharge.");
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd });
-  if (!res.ok) throw new Error(`whisper ${res.status}`);
+  if (!res.ok) throw new Error(`transcription ${res.status}`);
   const data = await res.json();
   return str(data?.text, 2_000);
 }
 
-async function speak(key: string, text: string, voice: string) {
-  const res = await fetch("https://api.openai.com/v1/audio/speech", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "tts-1", voice, input: text.slice(0, 1_200), response_format: "mp3" }),
-  });
-  if (!res.ok) throw new Error(`tts ${res.status}`);
-  const buf = new Uint8Array(await res.arrayBuffer());
-  let binary = "";
-  for (let i = 0; i < buf.length; i += 0x8000) binary += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-  return btoa(binary);
-}
-
-type Entry = { id: string; title: string; city: string | null; description: string | null; ai_summary: string | null; topics: string[] | null; detected_brands: string[] | null; created_at: string };
-
-function rankEntries(entries: Entry[], query: string, topic: string) {
-  const words = normalize(query).split(/[^a-z0-9]+/).filter((w) => w.length > 3).map((w) => w.replace(/(s|x)$/, ""));
-  return entries
-    .map((e) => {
-      const hay = normalize([e.title, e.city, e.description, e.ai_summary, (e.topics ?? []).join(" "), (e.detected_brands ?? []).join(" ")].join(" "));
-      let score = words.reduce((n, w) => n + (hay.includes(w) ? 1 : 0), 0);
-      if (topic && e.topics?.includes(topic)) score += 1.5;
-      return { e, score };
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8)
-    .map((x) => x.e);
-}
-
-function buildSystem(settings: Json | null, facts: Json[], partners: Json[], entries: Entry[], context: Json, client: { name: string; phone: string }) {
-  const lines = [
-    str(settings?.prompt, 4_000) || "Tu es le majordome numérique de CELEC, une équipe d’électriciens basée à Clamart qui intervient aussi à Meudon, Issy-les-Moulineaux et dans le sud de Paris.",
-    str(settings?.tone, 1_000) ? `TON : ${str(settings?.tone, 1_000)}` : "",
-    "Tu réponds en français, à l’oral : deux à trois phrases courtes, chaleureuses et simples, sans liste ni markdown. Ta réponse sera lue à voix haute.",
-    "Tu n’inventes jamais un prix, un délai, une fréquence d’entretien, un horaire, une réalisation, un membre de l’équipe ni un lien juridique avec BlockTech. BlockTech est le bureau d’études qui intervient en amont des projets ; CELEC réalise sur le terrain.",
-    "SAVOIR-FAIRE DE CELEC (offres réelles) : Électricité (dépannage, tableau, prises et circuits, rénovation, projets avec architecte), Confort (éclairage, domotique, volets, partie électrique des portails), Sécurité (alarme — notamment Ajax —, vidéosurveillance, interphonie et accès), Réseau (Wi-Fi, câblage, supervision), Énergie (bornes de recharge, suivi des consommations, gestion de puissance), et l’entretien de ces installations.",
-    "Le photovoltaïque et la climatisation ne sont pas des offres confirmées : propose de transmettre la question à l’équipe.",
-    "Si tu n’as pas l’information, propose de transmettre la question à l’équipe avec un numéro de téléphone.",
-    str(settings?.site_info, 4_000) ? `INFORMATIONS DU SITE :\n${str(settings?.site_info, 4_000)}` : "",
-    facts.length ? `FICHE SOCIÉTÉ (fait foi) :\n${facts.map((f) => `- ${f.label} : ${f.value}${f.detail ? ` — ${f.detail}` : ""}`).join("\n")}` : "",
-    partners.length ? `PARTENAIRES (id | nom | type | pourquoi ce choix) :\n${partners.map((p) => `- ${p.id} | ${p.name} | ${p.kind === "pro" ? `professionnel ${p.trade ?? ""} ${p.locality ?? ""}` : "marque"} | ${str(p.why_story, 300) || "non renseigné"}`).join("\n")}` : "",
-    entries.length
-      ? `RÉALISATIONS DU CARNET pertinentes (id | titre | commune | résumé) — seules preuves autorisées :\n${entries.map((e) => `- ${e.id} | ${e.title} | ${e.city ?? ""} | ${str(e.ai_summary || e.description, 220)}`).join("\n")}`
-      : "Aucune réalisation du carnet ne correspond directement à la question : ne prétends pas en avoir.",
-    `PAGE ACTUELLE : ${str(context.page, 30) || "accueil"}${context.family ? `, famille ${str(context.family, 30)}` : ""}${context.topic ? `, sujet ${str(context.topic, 30)}` : ""}.`,
-    client.name || client.phone ? `COORDONNÉES DÉJÀ DONNÉES : ${client.name} ${client.phone}` : "",
-    `RÉPONDS UNIQUEMENT en JSON : {"reply": string, "actions": Action[]}. Actions possibles (0 à 2, seulement si elles aident vraiment) :
-- {"type":"navigate","view":"${VIEWS.join("|")}","family":"${FAMILIES.join("|")}"(si view=family)}
-- {"type":"filter_carnet","topic":"${TOPICS.join("|")}"}
-- {"type":"show_entries","ids":[ids du carnet listés ci-dessus, 4 max]}
-- {"type":"show_partner","id":"id d’un partenaire listé"}
-- {"type":"prefill_contact","category":"${CATEGORIES.join("|")}","first_name":string,"phone":string,"commune":string,"description":string} — quand le visiteur veut être rappelé, une intervention ou un devis. Cela remplit seulement le formulaire : le visiteur doit lui-même vérifier puis confirmer l’envoi. Dis-le-lui.`,
-  ];
-  return lines.filter(Boolean).join("\n\n");
-}
-
-function cleanActions(raw: unknown, entryIds: Set<string>, partnerIds: Set<string>) {
-  if (!Array.isArray(raw)) return [];
-  const out: Json[] = [];
-  for (const item of raw.slice(0, 3)) {
-    if (!item || typeof item !== "object") continue;
-    const a = item as Json;
-    if (a.type === "navigate" && VIEWS.includes(String(a.view))) {
-      const family = FAMILIES.includes(String(a.family)) ? String(a.family) : undefined;
-      if (a.view === "family" && !family) continue;
-      out.push({ type: "navigate", view: a.view, ...(family && { family }) });
-    } else if (a.type === "filter_carnet" && TOPICS.includes(String(a.topic))) {
-      out.push({ type: "filter_carnet", topic: a.topic });
-    } else if (a.type === "show_entries" && Array.isArray(a.ids)) {
-      const ids = a.ids.map(String).filter((id) => entryIds.has(id)).slice(0, 4);
-      if (ids.length) out.push({ type: "show_entries", ids });
-    } else if (a.type === "show_partner" && partnerIds.has(String(a.id))) {
-      out.push({ type: "show_partner", id: String(a.id) });
-    } else if (a.type === "prefill_contact") {
-      out.push({
-        type: "prefill_contact",
-        category: CATEGORIES.includes(String(a.category)) ? a.category : "depannage",
-        first_name: str(a.first_name, 60),
-        phone: str(a.phone, 30).replace(/[^\d+ .-]/g, ""),
-        commune: str(a.commune, 80),
-        description: str(a.description, 600),
-      });
-    }
+function cleanAction(raw: unknown): Json | null {
+  if (!raw || typeof raw !== "object") return null;
+  const a = raw as Json;
+  if (a.type === "show_entries" && Array.isArray(a.ids)) {
+    const ids = a.ids.map((id) => str(id, 40)).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 6);
+    return ids.length ? { type: "show_entries", ids } : null;
   }
-  return out;
+  if (a.type === "show_partner" && /^[0-9a-f-]{36}$/i.test(str(a.id, 40))) return { type: "show_partner", id: str(a.id, 40) };
+  if (a.type === "navigate" && /^[a-z-]{2,20}$/.test(str(a.view, 20))) return { type: "navigate", view: str(a.view, 20) };
+  return null;
+}
+
+function cleanTurns(raw: unknown, now: string): Turn[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 4).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const t = item as Json;
+    const role = t.role === "assistant" ? "assistant" : t.role === "user" ? "user" : null;
+    const text = str(t.text, 2_000);
+    if (!role || !text) return [];
+    const actions = Array.isArray(t.actions) ? t.actions.slice(0, 4).map(cleanAction).filter((a): a is Json => Boolean(a)) : [];
+    return [{ role, text, at: now, ...(actions.length && { actions }) }];
+  });
 }
 
 Deno.serve(async (req: Request) => {
@@ -202,7 +122,7 @@ Deno.serve(async (req: Request) => {
     const token = str(body.token, 120);
     if (!/^[a-z0-9-]{6,80}$/i.test(sessionKey) || token.length < 24) return json({ error: "invalid_session" }, 400);
     const tokenHash = await sha256(token);
-    const action = str(body.action, 20) || "turn";
+    const action = str(body.action, 20);
 
     const { row, forbidden, closed } = await findConversation(service, userId, sessionKey, tokenHash);
     if (forbidden) return json({ error: "forbidden" }, 403);
@@ -221,12 +141,31 @@ Deno.serve(async (req: Request) => {
       return json({ success: true });
     }
 
-    if (action !== "turn" && action !== "transcribe") return json({ error: "unknown_action" }, 400);
-
-    const key = Deno.env.get("OPENAI_API_KEY");
-    if (!key) return json({ error: "ai_unavailable" }, 503);
+    if (action === "append") {
+      const now = new Date().toISOString();
+      const turns = cleanTurns(body.turns, now);
+      if (!turns.length) return json({ error: "empty" }, 422);
+      const transcript = (row?.transcript ?? []) as Turn[];
+      const minuteAgo = Date.now() - 60_000;
+      if (transcript.filter((t) => Date.parse(t.at) > minuteAgo).length >= APPENDS_PER_MINUTE) return json({ error: "rate_limited" }, 429);
+      const next = [...transcript, ...turns].slice(-MAX_TURNS);
+      const patch: Json = { transcript: next, message_count: next.length, last_activity_at: now, expires_at: expiry() };
+      const page = str(body.page, 30);
+      if (page) patch.context = { page };
+      if (row) {
+        await service.from("concierge_conversations").update(patch).eq("id", row.id);
+      } else {
+        const { error } = await service.from("concierge_conversations").insert({
+          ...patch, session_key: sessionKey, write_token_hash: tokenHash, profile_id: userId, mode: "turns",
+        });
+        if (error) throw error;
+      }
+      return json({ success: true });
+    }
 
     if (action === "transcribe") {
+      const key = Deno.env.get("OPENAI_API_KEY");
+      if (!key) return json({ error: "ai_unavailable" }, 503);
       const audio = typeof body.audio_base64 === "string" ? body.audio_base64 : "";
       if (!audio) return json({ error: "empty_transcript" }, 422);
       try {
@@ -237,92 +176,9 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const transcript = (row?.transcript ?? []) as Turn[];
-    const minuteAgo = Date.now() - 60_000;
-    if (transcript.filter((t) => t.role === "user" && Date.parse(t.at) > minuteAgo).length >= TURNS_PER_MINUTE) {
-      return json({ error: "rate_limited" }, 429);
-    }
-
-    let userText = str(body.text, 1_000);
-    const audio = typeof body.audio_base64 === "string" ? body.audio_base64 : "";
-    if (!userText && audio) {
-      try {
-        userText = await transcribe(key, audio, str(body.audio_mime, 60));
-      } catch (err) {
-        console.error("transcription failed", err);
-        return json({ error: "transcription_failed" }, 502);
-      }
-    }
-    if (userText.replace(/[^\p{L}\p{N}]/gu, "").length < 2) return json({ error: "empty_transcript" }, 422);
-
-    const context = (body.context && typeof body.context === "object" ? body.context : {}) as Json;
-    const [{ data: settings }, { data: facts }, { data: partners }, { data: entries }] = await Promise.all([
-      service.from("concierge_settings").select("prompt, tone, site_info, voice").eq("id", 1).maybeSingle(),
-      service.from("company_facts").select("label, value, detail").eq("published", true).order("position"),
-      service.from("partners").select("id, name, kind, trade, locality, why_story").eq("published", true).order("position"),
-      service.from("photos").select("id, title, city, description, ai_summary, topics, detected_brands, created_at").eq("published", true).order("created_at", { ascending: false }).limit(400),
-    ]);
-    const history = transcript.slice(-HISTORY_FOR_MODEL).map((t) => t.text).join(" ");
-    const relevant = rankEntries((entries ?? []) as Entry[], `${userText} ${history.slice(-400)}`, str(context.topic, 30));
-    const client = { name: row?.client_name ?? "", phone: row?.client_phone ?? "" };
-
-    const chat = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.4,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: buildSystem(settings as Json | null, (facts ?? []) as Json[], (partners ?? []) as Json[], relevant, context, client) },
-          ...transcript.slice(-HISTORY_FOR_MODEL).map((t) => ({ role: t.role, content: t.text })),
-          { role: "user", content: userText },
-        ],
-      }),
-    });
-    if (!chat.ok) {
-      console.error("chat failed", chat.status, await chat.text().catch(() => ""));
-      return json({ error: "ai_failed", transcript: userText }, 502);
-    }
-    const parsed = JSON.parse((await chat.json())?.choices?.[0]?.message?.content ?? "{}") as Json;
-    const reply = str(parsed.reply, 1_200) || "Je n’ai pas bien saisi. Pouvez-vous reformuler ?";
-    const actions = cleanActions(parsed.actions, new Set(relevant.map((e) => e.id)), new Set(((partners ?? []) as Json[]).map((p) => String(p.id))));
-
-    const voiceSetting = str((settings as Json | null)?.voice, 20);
-    let audioOut: string | null = null;
-    if (body.speak !== false) {
-      try {
-        audioOut = await speak(key, reply, VOICES.includes(voiceSetting) ? voiceSetting : "coral");
-      } catch (err) {
-        console.error("tts failed", err);
-      }
-    }
-
-    const now = new Date().toISOString();
-    const nextTranscript: Turn[] = [...transcript, { role: "user", text: userText, at: now }, { role: "assistant", text: reply, at: now, actions }].slice(-MAX_TURNS);
-    const prefill = actions.find((a) => a.type === "prefill_contact");
-    const patch: Json = {
-      transcript: nextTranscript,
-      message_count: nextTranscript.length,
-      last_activity_at: now,
-      expires_at: expiry(),
-      context: { page: str(context.page, 30), family: str(context.family, 30), topic: str(context.topic, 30) },
-    };
-    if (prefill?.first_name) patch.client_name = prefill.first_name;
-    if (prefill?.phone) patch.client_phone = prefill.phone;
-    if (row) {
-      await service.from("concierge_conversations").update(patch).eq("id", row.id);
-    } else {
-      const { error } = await service.from("concierge_conversations").insert({
-        ...patch, session_key: sessionKey, write_token_hash: tokenHash, profile_id: userId, mode: "turns",
-      });
-      if (error) throw error;
-    }
-
-    return json({ transcript: userText, reply, actions, audio_base64: audioOut, at: now });
+    return json({ error: "unknown_action" }, 400);
   } catch (err) {
     console.error("concierge-turn error", err);
     return json({ error: "server_error" }, 500);
   }
 });
-

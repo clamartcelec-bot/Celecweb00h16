@@ -1,16 +1,12 @@
-import { createElement, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Eraser, MessageSquarePlus } from 'lucide-react';
-import '@/concierge/robot/controller.js';
-import type { RobotElement } from '@/concierge/robot/controller.js';
 import { ConciergeThread } from '@/site/concierge/ConciergeThread';
-import type { ConciergeApi, ConciergeContext } from '@/site/concierge/useConcierge';
-import { useTalk } from '@/site/concierge/useTalk';
+import type { ConciergeApi } from '@/site/concierge/useConcierge';
 import type { Partner, Photo } from '@/site/types';
 
 interface Props {
   api: ConciergeApi;
-  context: () => ConciergeContext;
   photos: Photo[];
   partners: Partner[];
   signedIn: boolean;
@@ -19,21 +15,24 @@ interface Props {
   onClose: () => void;
 }
 
-export function ConciergeChat({ api, context, photos, partners, signedIn, onOpenEntry, onOpenPartner, onClose }: Props) {
-  const talk = useTalk(api, context);
-  const robot = useRef<RobotElement | null>(null);
+const PHASE_TEXT = {
+  ready: 'Restez appuyé sur moi pour parler, ou écrivez à droite.',
+  connecting: 'Une seconde…',
+  listening: 'Je vous écoute. Relâchez quand vous avez fini.',
+  thinking: 'Je cherche la meilleure réponse…',
+  speaking: 'Touchez-moi pour m’interrompre.',
+} as const;
+
+export function ConciergeChat({ api, photos, partners, signedIn, onOpenEntry, onOpenPartner, onClose }: Props) {
   const [confirmClear, setConfirmClear] = useState(false);
+  const listening = api.phase === 'listening';
 
   useEffect(() => {
-    robot.current?.setState(api.phase === 'recording' ? 'listening' : api.phase === 'thinking' ? 'thinking' : api.phase === 'speaking' ? 'speaking' : 'idle');
-  }, [api.phase]);
-  useEffect(() => { robot.current?.setAmplitude(talk.recording ? talk.level : api.phase === 'speaking' ? 0.45 : 0); }, [talk.level, talk.recording, api.phase]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !talk.recording) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !listening) onClose(); };
     window.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
-  }, [onClose, talk.recording]);
+  }, [onClose, listening]);
 
   return (
     <motion.div
@@ -66,26 +65,19 @@ export function ConciergeChat({ api, context, photos, partners, signedIn, onOpen
 
       <div className="s-cxp-body">
         <aside className="s-cxp-robot">
-          <button
-            className={`s-cxp-robot-btn is-${api.phase}`}
-            aria-label={talk.recording ? 'Arrêter et envoyer' : 'Parler au robot'}
-            aria-pressed={talk.recording}
-            onClick={() => (talk.recording ? void talk.finish() : void talk.begin())}
-          >
-            {createElement('robot-majordome', { ref: robot, class: 's-cxp-robot-el', 'auto-blink': '', 'follow-pointer': '', 'no-toolbox': '', 'no-shadow': '', 'aria-hidden': true })}
-          </button>
-          <p>{talk.recording ? 'Je vous écoute. Touchez-moi à nouveau pour envoyer.' : 'Touchez le robot ou le micro pour parler, ou écrivez en bas.'}</p>
+          <div className="s-cxp-spot">
+            <span className={`s-cxp-glow is-${api.phase}`} aria-hidden="true" />
+            <div className="s-cxp-anchor" data-robot-anchor="chat" aria-hidden="true" />
+          </div>
+          <p aria-live="polite">{PHASE_TEXT[api.phase]}</p>
           <small>Votre conversation est conservée 90 jours{signedIn ? ' et retrouvée sur vos autres appareils' : ' sur cet appareil'}.</small>
         </aside>
         <ConciergeThread
           api={api}
-          talk={talk}
-          onSendText={(text) => void api.send({ text }, context())}
           photos={photos}
           partners={partners}
           onOpenEntry={onOpenEntry}
           onOpenPartner={onOpenPartner}
-          emptyHint="Bonjour ! Je peux vous orienter pour une panne, un projet de travaux, vous montrer nos réalisations ou préparer une demande de rappel."
         />
       </div>
     </motion.div>

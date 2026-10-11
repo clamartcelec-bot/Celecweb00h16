@@ -19,9 +19,8 @@ import { FamiliesSection, TerritorySection } from '@/site/components/HomeFamilie
 import { FamilyPage } from '@/site/pages/FamilyPage';
 import { isFamilyKey, topicById, type FamilyKey } from '@/site/taxonomy';
 import { ContactSection } from '@/site/components/ContactSection';
-import { ConciergeTransition } from '@/site/components/ConciergeTransition';
 import { useConcierge, type ConciergeAction, type ConciergeContext } from '@/site/concierge/useConcierge';
-import { FloatingRobot } from '@/site/concierge/FloatingRobot';
+import { RobotDock } from '@/site/concierge/RobotDock';
 import { ConciergeChat } from '@/site/concierge/ConciergeChat';
 import { EntrySheet } from '@/site/components/EntrySheet';
 import { BrandSheet } from '@/site/components/BrandSheet';
@@ -72,7 +71,6 @@ function App() {
   const [brandView, setBrandView] = useState<{ name: string; partner: Partner | null } | null>(null);
   const [brandReturn, setBrandReturn] = useState<string | null>(null);
   const [fromChat, setFromChat] = useState(false);
-  const [portal, setPortal] = useState<{ x: number; y: number } | null>(null);
   const [conciergeOpen, setConciergeOpen] = useState(false);
   const [contactPrefill, setContactPrefill] = useState<{ text: string; phone: string; nonce: number } | null>(null);
   const pendingBrandRef = useRef<string | null>(null);
@@ -237,9 +235,7 @@ function App() {
     ? photos.filter((p) => (p.detected_brands ?? []).some((b) => normalizeBrandName(b) === normalizeBrandName(brandView.name)))
     : [];
 
-  const enterConcierge = (origin?: { x: number; y: number }) => {
-    setPortal(origin ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-  };
+  const enterConcierge = () => setConciergeOpen(true);
 
   const logout = async () => {
     await supabase?.auth.signOut();
@@ -279,12 +275,12 @@ function App() {
     }
   };
 
-  const concierge = useConcierge(runConciergeActions);
   const conciergeContext = useCallback((): ConciergeContext => ({
-    page: view,
+    page: conciergeOpen ? 'concierge' : view,
     family: view === 'family' ? familyKey : undefined,
     topic: view === 'carnet' ? carnetTopic : undefined,
-  }), [view, familyKey, carnetTopic]);
+  }), [conciergeOpen, view, familyKey, carnetTopic]);
+  const concierge = useConcierge({ photos, partners, userEmail, context: conciergeContext, onActions: runConciergeActions });
 
   const openFromChat = (entry: Photo) => {
     setConciergeOpen(false);
@@ -304,7 +300,7 @@ function App() {
     return <AdminDashboard onClose={() => go('home')} />;
   }
 
-  const receding = conciergeOpen || portal ? '1' : undefined;
+  const receding = conciergeOpen ? '1' : undefined;
 
   return (
     <>
@@ -374,7 +370,6 @@ function App() {
                   onCategory={pickCategory}
                   onMap={() => go('map')}
                   onOpenEntry={(e) => openCarnetDetail(e)}
-                  onConcierge={enterConcierge}
                 />
                 <StatsBand t={t} entries={photos.length} cities={cityGroups.length} partners={partners.length} />
                 <FamiliesSection
@@ -431,18 +426,6 @@ function App() {
       </main>
 
       <SiteFooter t={t} onNavigate={go} onConcierge={() => enterConcierge()} />
-
-      {!conciergeOpen && !portal && view !== 'admin-login' && (
-        <FloatingRobot
-          api={concierge}
-          context={conciergeContext}
-          photos={photos}
-          partners={partners}
-          onOpenEntry={(e) => openCarnetDetail(e)}
-          onOpenPartner={(p) => openBrand(p.name, p)}
-          onExpand={() => setConciergeOpen(true)}
-        />
-      )}
 
       <AnimatePresence>
         {carnetDetail && (
@@ -502,7 +485,6 @@ function App() {
         <ConciergeChat
           key="concierge"
           api={concierge}
-          context={conciergeContext}
           photos={photos}
           partners={partners}
           signedIn={Boolean(userEmail)}
@@ -513,17 +495,20 @@ function App() {
       )}
     </AnimatePresence>
 
-    <AnimatePresence>
-      {portal && (
-        <ConciergeTransition
-          origin={portal}
-          label={t.robotEntering}
-          cancelLabel={t.robotCancel}
-          onDone={() => { setConciergeOpen(true); setPortal(null); }}
-          onCancel={() => setPortal(null)}
-        />
-      )}
-    </AnimatePresence>
+    {view !== 'admin-login' && (
+      <RobotDock
+        api={concierge}
+        lang={lang}
+        page={view}
+        userName={isClient ? userName : null}
+        chatOpen={conciergeOpen}
+        photos={photos}
+        partners={partners}
+        onOpenEntry={(e) => (conciergeOpen ? openFromChat(e) : openCarnetDetail(e))}
+        onOpenPartner={(p) => (conciergeOpen ? partnerFromChat(p) : openBrand(p.name, p))}
+        onOpenChat={enterConcierge}
+      />
+    )}
     </>
   );
 }

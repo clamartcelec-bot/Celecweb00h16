@@ -65,7 +65,7 @@ export function CarnetPage({ t, photos, status, onRetry, topic, onTopic, onOpen 
   let cellIndex = 0;
 
   return (
-    <div className="s-page">
+    <div className="s-page s-page--wide">
       <PageIntro eyebrow={<><BookOpen size={14} /> CELEC</>} title={t.carnetTitle} lead={t.carnetPageLead} />
 
       <div className="s-cx-bar" role="toolbar" aria-label="Filtrer le Carnet par sujet">
