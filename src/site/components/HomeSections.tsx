@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { animate, motion, useInView } from 'motion/react';
 import { ArrowRight, Handshake } from 'lucide-react';
 import type { Copy } from '@/site/content';
-import { FAMILIES } from '@/site/taxonomy';
 import { EASE_SOFT, fadeUp, stagger, viewportOnce } from '@/site/motion';
 import { SectionHead } from '@/site/components/SectionHead';
 import { EntryCard } from '@/site/components/EntryCard';
@@ -26,7 +25,6 @@ export function StatsBand({ t, entries, cities, partners }: { t: Copy; entries: 
     { value: cities, label: t.statCities },
     { value: partners, label: t.statPartners },
   ];
-  const words = [...FAMILIES.map((f) => f.name), 'Entretien', t.navCarnet];
   return (
     <section className="s-band">
       <motion.div className="s-stats" variants={stagger(0.12)} initial="hidden" whileInView="show" viewport={viewportOnce}>
@@ -37,13 +35,6 @@ export function StatsBand({ t, entries, cities, partners }: { t: Copy; entries: 
           </motion.div>
         ))}
       </motion.div>
-      <div className="s-marquee" aria-hidden="true">
-        <div className="s-marquee-track">
-          {[...words, ...words, ...words].map((w, i) => (
-            <span key={i}>{w}<em>✦</em></span>
-          ))}
-        </div>
-      </div>
     </section>
   );
 }
