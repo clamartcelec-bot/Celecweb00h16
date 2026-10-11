@@ -41,10 +41,8 @@ export function SiteHeader({ t, lang, theme, view, userEmail, userName, isAdmin,
     { label: t.navPartners, view: 'partners' },
   ];
 
-  // How many links fit before collapsing into the burger; the Concierge button
-  // is always the last thing kept visible (icon-only on small screens).
+  // How many links fit next to the burger and the Concierge button.
   const [fit, setFit] = useState(links.length);
-  const [narrow, setNarrow] = useState(false);
 
   useEffect(() => {
     const header = headerRef.current;
@@ -54,7 +52,6 @@ export function SiteHeader({ t, lang, theme, view, userEmail, userName, isAdmin,
     const measure = () => {
       raf = 0;
       const width = header.clientWidth;
-      setNarrow(width <= 640);
       const cs = getComputedStyle(header);
       const logo = header.querySelector<HTMLElement>('.s-logo');
       const actions = header.querySelector<HTMLElement>('.s-hdr-actions');
@@ -63,16 +60,12 @@ export function SiteHeader({ t, lang, theme, view, userEmail, userName, isAdmin,
       const kids = Array.from(mirror.children) as HTMLElement[];
       const linkW = kids.slice(0, links.length).map((el) => el.offsetWidth + 2);
       const conciergeW = (kids[kids.length - 1]?.offsetWidth ?? 0) + 6;
-      const chrome = 8 + conciergeW;
+      const chrome = 50 + 8 + conciergeW;
       const base = width - pad - gaps - (logo?.offsetWidth ?? 0) - (actions?.offsetWidth ?? 0) - 24;
-      const count = (withBurger: boolean) => {
-        let total = chrome + (withBurger ? 50 : 0);
-        let k = 0;
-        while (k < links.length && total + linkW[k] <= base) { total += linkW[k]; k++; }
-        return k;
-      };
-      const full = count(false);
-      setFit(full === links.length ? full : count(true));
+      let total = chrome;
+      let k = 0;
+      while (k < links.length && total + linkW[k] <= base) { total += linkW[k]; k++; }
+      setFit(k);
     };
     const schedule = () => { if (!raf) raf = requestAnimationFrame(measure); };
     const ro = new ResizeObserver(schedule);
@@ -82,7 +75,6 @@ export function SiteHeader({ t, lang, theme, view, userEmail, userName, isAdmin,
   }, [links.length]);
 
   const collapsed = fit < links.length;
-
   useMotionValueEvent(scrollY, 'change', (y) => setScrolled(y > 24));
 
   useEffect(() => {
@@ -138,6 +130,9 @@ export function SiteHeader({ t, lang, theme, view, userEmail, userName, isAdmin,
               </button>
             );
           })}
+          <button className={`s-icon-btn s-burger ${collapsed ? 'is-needed' : ''}`} onClick={() => setMenuOpen((v) => !v)} aria-label="Menu" aria-expanded={menuOpen}>
+            {menuOpen ? <X size={19} /> : <Menu size={19} />}
+          </button>
           <button className="s-nav-concierge" onClick={onConcierge} aria-label={t.navConcierge}>
             <Sparkles size={14} />
             <span className="s-nav-concierge-label">{t.navConcierge}</span>
@@ -202,10 +197,6 @@ export function SiteHeader({ t, lang, theme, view, userEmail, userName, isAdmin,
               )}
             </AnimatePresence>
           </div>
-
-          <button className={`s-icon-btn s-burger ${collapsed || narrow ? 'is-needed' : ''}`} onClick={() => setMenuOpen((v) => !v)} aria-label="Menu" aria-expanded={menuOpen}>
-            {menuOpen ? <X size={19} /> : <Menu size={19} />}
-          </button>
         </div>
       </motion.header>
 
