@@ -103,6 +103,7 @@ Deno.serve(async (req: Request) => {
       "Description: " + (description || "(vide)"),
     ];
     if (source === "voice") lines.push("Source: Message vocal");
+    if (source === "robot") lines.push("Source: Pré-rempli par le robot, confirmé par le client");
     if (source === "callback") lines.push("Rappel demande");
     if (source === "concierge") lines.push("Source: Concierge vocal");
     if (userEmail) lines.push("Compte: " + userEmail);
@@ -161,3 +162,4 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
+

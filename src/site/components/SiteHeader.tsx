@@ -37,10 +37,11 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
   }, [settingsOpen]);
 
   const links: { label: string; view: View; anchor?: string }[] = [
+    { label: t.navServices, view: 'home', anchor: 'familles' },
+    { label: 'Entretien', view: 'entretien' },
     { label: t.navCarnet, view: 'carnet' },
     { label: t.navMap, view: 'map' },
     { label: t.navPartners, view: 'partners' },
-    { label: t.navServices, view: 'home', anchor: 'savoir-faire' },
   ];
 
   const navigate = (target: View, anchor?: string) => {

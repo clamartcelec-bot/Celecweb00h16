@@ -12,7 +12,7 @@ export function BrandSheet({
   partner,
   entries,
   userEmail,
-  showConciergeReturn,
+  onConciergeReturn,
   onOpenEntry,
   onClose,
 }: {
@@ -21,7 +21,7 @@ export function BrandSheet({
   partner: Partner | null;
   entries: Photo[];
   userEmail: string | null;
-  showConciergeReturn: boolean;
+  onConciergeReturn?: () => void;
   onOpenEntry: (entry: Photo) => void;
   onClose: () => void;
 }) {
@@ -35,12 +35,15 @@ export function BrandSheet({
         )}
       </div>
       <div className="s-sheet-body">
-        {showConciergeReturn && (
+        {onConciergeReturn && (
           <div className="s-sheet-backs">
-            <a className="s-chip-btn s-chip-btn--accent" href="/concierge"><ArrowLeft size={14} /> {t.backToConversation}</a>
+            <button className="s-chip-btn s-chip-btn--accent" onClick={onConciergeReturn}><ArrowLeft size={14} /> {t.backToConversation}</button>
           </div>
         )}
         <h2 className="s-sheet-title">{name}</h2>
+        {partner?.why_story?.trim() && (
+          <p className="s-sheet-text s-partner-why"><b>Pourquoi ce choix</b>{partner.why_story}</p>
+        )}
         <p className={`s-sheet-text ${partner?.description ? '' : 's-muted'}`}>{partner?.description || t.noBrandSheet}</p>
 
         <div className="s-sheet-block">

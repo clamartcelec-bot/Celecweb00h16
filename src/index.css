@@ -323,6 +323,23 @@ input,textarea{font:inherit;color:var(--text)}
 .crn-dictate-row.recording .crn-mic-wave span:nth-child(7n){animation-delay:.6s}
 @keyframes crn-wave{0%,100%{height:4px;opacity:.4}50%{height:18px;opacity:1}}
 .crn-mic-error{font-size:11px;color:#ef4444;line-height:1.3}
+.crn-kind-switch{display:inline-flex;gap:4px;padding:4px;border-radius:10px;background:var(--bg2);border:1px solid var(--border);margin-bottom:12px}
+.crn-kind-switch button{padding:7px 14px;border-radius:7px;border:none;background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:background .15s,color .15s}
+.crn-kind-switch button:hover{color:var(--text)}
+.crn-kind-switch button.is-on{background:var(--surface);color:var(--pink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.crn-kind-switch--sm{margin-bottom:10px}
+.crn-kind-switch--sm button{padding:5px 11px;font-size:11px}
+.crn-why{margin-top:12px;padding:12px;border:1px dashed var(--border);border-radius:10px;background:var(--bg2)}
+.crn-why-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.crn-why textarea{width:100%;min-height:84px;resize:vertical}
+.crn-why-live{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--pink);margin:0 0 8px;line-height:1.4}
+.crn-rec-dot{width:8px;height:8px;border-radius:999px;background:var(--pink);flex-shrink:0;animation:crn-rec 1.1s ease-in-out infinite}
+@keyframes crn-rec{0%,100%{opacity:1}50%{opacity:.25}}
+.crn-dictate-stop{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:8px;border:1px solid var(--pink);background:var(--pink);color:#fff;font-size:12px;font-weight:700;cursor:pointer}
+.crn-dictate-stop svg{fill:#fff}
+.crn-kind-tag{display:inline-block;margin-top:4px;font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.2px}
+.crn-card-desc--todo{font-style:italic;color:#d97706}
+@media (prefers-reduced-motion:reduce){.crn-rec-dot{animation:none}}
 .crn-lightbox{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(0,0,0,.85);backdrop-filter:blur(4px);cursor:zoom-out}
 .crn-lightbox img{max-width:92vw;max-height:88vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
 .crn-lightbox-close{position:absolute;top:16px;right:16px;width:36px;height:36px;display:grid;place-items:center;border-radius:999px;border:none;background:rgba(255,255,255,.14);color:#fff;cursor:pointer;transition:background .15s}

@@ -1,5 +1,5 @@
 export type Lang = 'fr' | 'en' | 'es' | 'ar';
-export type View = 'home' | 'map' | 'carnet' | 'partners' | 'blocktech' | 'admin-login' | 'admin';
+export type View = 'home' | 'family' | 'entretien' | 'map' | 'carnet' | 'partners' | 'blocktech' | 'admin-login' | 'admin';
 export type Theme = 'light' | 'dark';
 export type ContactCategory = 'depannage' | 'chantier' | 'projet';
 
@@ -22,6 +22,8 @@ export interface Photo {
   created_at: string;
   detected_brands?: string[] | null;
   entry_type?: string | null;
+  ai_summary?: string | null;
+  topics?: string[] | null;
   photo_images?: PhotoImage[];
 }
 
@@ -40,6 +42,10 @@ export interface Partner {
   position: number;
   published: boolean;
   created_at: string;
+  kind?: 'brand' | 'pro';
+  trade?: string | null;
+  locality?: string | null;
+  why_story?: string | null;
 }
 
 export interface Comment {

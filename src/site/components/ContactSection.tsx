@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useScroll, useTransform } from 'motion/react';
-import { AlertCircle, ArrowRight, CheckCircle2, Lightbulb, Loader2, Mic, RotateCcw, Send, Square, UserRound, Wrench, Zap } from 'lucide-react';
+import { AlertCircle, ArrowRight, Bot, CheckCircle2, Lightbulb, Loader2, Mic, Send, Square, UserRound, Wrench, Zap } from 'lucide-react';
 import { IMAGES, type Copy } from '@/site/content';
 import { EASE_SOFT, fadeUp, stagger, viewportOnce } from '@/site/motion';
 import { SplitTitle } from '@/site/components/Reveal';
 import { notifyTeam } from '@/site/notify';
 import type { ContactCategory } from '@/site/types';
+import { useVoiceRecorder } from '@/site/concierge/useVoiceRecorder';
 
 const CATS: { id: ContactCategory; icon: typeof Zap }[] = [
   { id: 'depannage', icon: Zap },
@@ -21,19 +22,26 @@ export function ContactSection({
   onCategory,
   userEmail,
   onLogin,
+  prefill,
+  transcribe,
 }: {
   t: Copy;
   category: ContactCategory | null;
   onCategory: (c: ContactCategory | null) => void;
   userEmail: string | null;
   onLogin: () => void;
+  prefill: { text: string; phone: string; nonce: number } | null;
+  transcribe: (blob: Blob, mime: string) => Promise<string>;
 }) {
   const ref = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
   const bgY = useTransform(scrollYProgress, [0, 1], ['-8%', '8%']);
   const [text, setText] = useState('');
   const [phone, setPhone] = useState('');
-  const [voice, setVoice] = useState<'idle' | 'recording' | 'done'>('idle');
+  const [voice, setVoice] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [usedVoice, setUsedVoice] = useState(false);
+  const [fromRobot, setFromRobot] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [status, setStatus] = useState<Status>('idle');
   const [relayed, setRelayed] = useState<boolean | null>(null);
@@ -41,26 +49,50 @@ export function ContactSection({
 
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
+  useEffect(() => {
+    if (!prefill) return;
+    if (prefill.text) setText(prefill.text);
+    if (prefill.phone) setPhone(prefill.phone);
+    setFromRobot(true);
+    setStatus('idle');
+  }, [prefill]);
+
   const label = (c: ContactCategory) => (c === 'depannage' ? t.catDepannage : c === 'chantier' ? t.catChantier : t.catProjet);
   const stopTimer = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
-  const toggleVoice = () => {
-    if (voice === 'idle') {
-      setVoice('recording');
-      setSeconds(0);
-      timer.current = setInterval(() => setSeconds((s) => s + 1), 1000);
-    } else if (voice === 'recording') {
-      stopTimer();
-      setVoice('done');
-    } else {
-      stopTimer();
-      setVoice('idle');
-      setSeconds(0);
+
+  const dictated = async (rec: { blob: Blob; mime: string; durationMs: number } | null) => {
+    stopTimer();
+    if (!rec || rec.durationMs < 600) { setVoice('idle'); if (rec) setVoiceError('Trop court, réessayez en parlant un peu plus longtemps.'); return; }
+    setVoice('transcribing');
+    try {
+      const words = (await transcribe(rec.blob, rec.mime)).trim();
+      if (!words) throw new Error('empty');
+      setText((prev) => (prev.trim() ? `${prev.trim()} ${words}` : words));
+      setUsedVoice(true);
+    } catch {
+      setVoiceError('Je n’ai pas réussi à transcrire. Réessayez ou écrivez votre message.');
     }
+    setVoice('idle');
+  };
+  const recorder = useVoiceRecorder((rec) => void dictated(rec));
+
+  const toggleVoice = async () => {
+    setVoiceError(null);
+    if (voice === 'recording') { void dictated(await recorder.stop()); return; }
+    if (voice !== 'idle') return;
+    const err = await recorder.start();
+    if (err) {
+      setVoiceError(err === 'denied' ? 'Le micro est bloqué : autorisez-le dans les réglages du navigateur, ou écrivez votre message.' : 'Le micro n’est pas disponible ici. Vous pouvez écrire votre message.');
+      return;
+    }
+    setVoice('recording');
+    setSeconds(0);
+    timer.current = setInterval(() => setSeconds((v) => v + 1), 1000);
   };
   const clock = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
-  const hasContent = Boolean(text.trim() || category || voice === 'done');
-  const canSend = hasContent && status !== 'sending' && (Boolean(userEmail) || phone.replace(/\D/g, '').length >= 8);
+  const hasContent = Boolean(text.trim() || category);
+  const canSend = hasContent && status !== 'sending' && voice === 'idle' && (Boolean(userEmail) || phone.replace(/\D/g, '').length >= 8);
 
   const send = async () => {
     if (!canSend) return;
@@ -70,7 +102,7 @@ export function ContactSection({
       const result = await notifyTeam({
         category: category ?? 'question',
         description: text.trim() || (category ? label(category) : 'question'),
-        source: voice === 'done' ? 'voice' : 'chat',
+        source: fromRobot ? 'robot' : usedVoice ? 'voice' : 'chat',
         user_email: userEmail ?? undefined,
         guest_phone: userEmail ? undefined : phone.trim(),
       });
@@ -79,9 +111,8 @@ export function ContactSection({
       setText('');
       setPhone('');
       onCategory(null);
-      stopTimer();
-      setVoice('idle');
-      setSeconds(0);
+      setUsedVoice(false);
+      setFromRobot(false);
       window.setTimeout(() => setStatus('idle'), 6000);
     } catch {
       setStatus('error');
@@ -122,13 +153,19 @@ export function ContactSection({
         <div className="s-compose">
           <textarea placeholder={t.orType} value={text} onChange={(e) => setText(e.target.value)} rows={3} />
           <div className="s-compose-bar">
-            <button className={`s-voice ${voice !== 'idle' ? `is-${voice}` : ''}`} onClick={toggleVoice}>
+            <button type="button" className={`s-voice ${voice !== 'idle' ? `is-${voice}` : ''}`} onClick={() => void toggleVoice()} disabled={voice === 'transcribing'}>
               {voice === 'idle' && <><Mic size={15} /> {t.voice}</>}
               {voice === 'recording' && <><span className="s-rec-dot" /> {clock} <Square size={12} /> {t.voiceStop}</>}
-              {voice === 'done' && <><CheckCircle2 size={15} /> {clock} <RotateCcw size={12} /> {t.voiceRetry}</>}
+              {voice === 'transcribing' && <><Loader2 size={15} className="s-spin" /> Transcription…</>}
             </button>
+            {voice === 'recording' && <button type="button" className="s-link s-link--muted" onClick={() => { recorder.cancel(); stopTimer(); setVoice('idle'); }}>Annuler</button>}
           </div>
         </div>
+
+        {voiceError && <p className="s-contact-hint s-contact-hint--error" role="alert"><AlertCircle size={14} /> {voiceError}</p>}
+        {fromRobot && status !== 'sent' && (
+          <p className="s-contact-hint"><Bot size={14} /> Le robot a pré-rempli votre demande. Vérifiez-la, puis appuyez sur « {t.send} » pour l’envoyer : rien n’est transmis sans votre confirmation.</p>
+        )}
 
         {userEmail ? (
           <div className="s-contact-foot">

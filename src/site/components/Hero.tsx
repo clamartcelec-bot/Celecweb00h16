@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
-import { ArrowRight, ArrowUpRight, MapPin, Phone } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Images, MapPin, MessagesSquare, Phone, Wrench, Zap } from 'lucide-react';
 import { IMAGES, type Copy } from '@/site/content';
 import { EASE_SOFT, fadeUp, stagger } from '@/site/motion';
 import { SplitTitle } from '@/site/components/Reveal';
@@ -27,10 +27,9 @@ export function Hero({ t, photos, onCallback, onSeeWork, onCategory, onMap, onOp
   const copyY = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : -60]);
   const thumbs = photos.filter((p) => coverOf(p)).slice(0, 3);
 
-  const quick: { label: string; cat: ContactCategory }[] = [
-    { label: t.catDepannage, cat: 'depannage' },
-    { label: t.catChantier, cat: 'chantier' },
-    { label: t.catProjet, cat: 'projet' },
+  const quick = [
+    { label: 'J’ai une panne', cat: 'depannage' as ContactCategory, Icon: Zap },
+    { label: 'J’ai un projet de travaux', cat: 'chantier' as ContactCategory, Icon: Wrench },
   ];
 
   return (
@@ -46,7 +45,7 @@ export function Hero({ t, photos, onCallback, onSeeWork, onCategory, onMap, onOp
           <span className="s-eyebrow-dot" />
           {t.heroEyebrow}
         </motion.span>
-        <SplitTitle as="h1" className="s-hero-title" text={t.heroTitle} accent="CELEC." immediate delay={0.35} />
+        <SplitTitle as="h1" className="s-hero-title" text="Juste de l’électricité, c’est déjà" accent="pas mal." immediate delay={0.35} />
         <motion.p className="s-hero-sub" variants={fadeUp}>{t.heroSub}</motion.p>
         <motion.div className="s-hero-ctas" variants={fadeUp}>
           <motion.button className="s-btn s-btn--primary" onClick={onCallback} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}>
@@ -54,19 +53,28 @@ export function Hero({ t, photos, onCallback, onSeeWork, onCategory, onMap, onOp
             {t.ctaCallback}
             <ArrowRight size={16} className="s-btn-arrow" />
           </motion.button>
-          <motion.button className="s-btn s-btn--ghost" onClick={onSeeWork} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}>
+          <motion.button className="s-btn s-btn--ghost" onClick={() => onCategory('projet')} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}>
+            <MessagesSquare size={16} />
+            Parler d’un projet
+          </motion.button>
+          <motion.button className="s-btn s-btn--text" onClick={onSeeWork} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}>
+            <Images size={16} />
             {t.ctaWork}
-            <ArrowRight size={16} className="s-btn-arrow" />
+            <ArrowRight size={15} className="s-btn-arrow" />
           </motion.button>
         </motion.div>
         <motion.div className="s-hero-quick" variants={fadeUp}>
           {quick.map((q) => (
             <button key={q.cat} className="s-quick" onClick={() => onCategory(q.cat)}>
+              <q.Icon size={14} />
               {q.label}
-              <ArrowRight size={13} />
             </button>
           ))}
         </motion.div>
+        <motion.p className="s-hero-local" variants={fadeUp}>
+          <MapPin size={14} />
+          Une équipe de terrain basée à Clamart · Meudon · Issy-les-Moulineaux · Paris Sud
+        </motion.p>
       </motion.div>
 
       <div className="s-hero-visual">

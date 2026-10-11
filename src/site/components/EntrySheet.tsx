@@ -11,7 +11,7 @@ export function EntrySheet({
   entry,
   userEmail,
   brandReturn,
-  showConciergeReturn,
+  onConciergeReturn,
   isLinkedBrand,
   onBrand,
   onBackToBrand,
@@ -21,7 +21,7 @@ export function EntrySheet({
   entry: Photo;
   userEmail: string | null;
   brandReturn: string | null;
-  showConciergeReturn: boolean;
+  onConciergeReturn?: () => void;
   isLinkedBrand: (name: string) => boolean;
   onBrand: (name: string) => void;
   onBackToBrand: () => void;
@@ -43,8 +43,8 @@ export function EntrySheet({
           {brandReturn && (
             <button className="s-chip-btn" onClick={onBackToBrand}><ArrowLeft size={14} /> {brandReturn}</button>
           )}
-          {showConciergeReturn && (
-            <a className="s-chip-btn s-chip-btn--accent" href="/concierge"><ArrowLeft size={14} /> {t.backToConversation}</a>
+          {onConciergeReturn && (
+            <button className="s-chip-btn s-chip-btn--accent" onClick={onConciergeReturn}><ArrowLeft size={14} /> {t.backToConversation}</button>
           )}
         </div>
         <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.7, ease: EASE_SOFT }}>

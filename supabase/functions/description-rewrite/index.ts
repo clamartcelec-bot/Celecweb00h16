@@ -47,6 +47,8 @@ Deno.serve(async (req: Request) => {
     let instructions = "";
     let currentDescription = "";
     let language = "fr";
+    let target = "entry";
+    let subject = "";
 
     if (isAudio) {
       let form: FormData;
@@ -74,6 +76,8 @@ Deno.serve(async (req: Request) => {
       instructions = String(form.get("instructions") || "");
       currentDescription = String(form.get("current_description") || "");
       language = String(form.get("language") || "fr");
+      target = String(form.get("target") || "entry");
+      subject = String(form.get("subject") || "").slice(0, 120);
 
       if (!openaiKey) {
         return new Response(JSON.stringify({ error: "Transcription indisponible" }), {
@@ -146,7 +150,14 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const system = [
+    const isPartnerStory = target === "partner_story";
+    const system = isPartnerStory ? [
+      `Tu ecris le court texte "Pourquoi nous l'avons choisi" pour ${subject || "un partenaire"} sur le site de CELEC, equipe d'electriciens a Clamart.`,
+      "Tu pars de ce que l'electricien raconte a l'oral : ses raisons, une petite histoire de terrain.",
+      "Ecris a la premiere personne du pluriel (nous), 2 a 4 phrases simples, ton sobre et legerement souriant.",
+      "N'invente aucun fait, chiffre, certification, garantie ou statut commercial absent de la dictee.",
+      "Tu reponds UNIQUEMENT par le texte final, sans guillemets, sans titre.",
+    ].join("\n") : [
       "Tu reecris la description d'un billet du carnet de bord de CELEC, electricien en region parisienne.",
       "Tu reponds UNIQUEMENT par la nouvelle description, sans guillemets, sans titre, sans explication.",
       "Tu gardes tous les faits du texte actuel et de la dictee du technicien, tu ameliores la forme, la clarte et la precision.",
@@ -157,7 +168,9 @@ Deno.serve(async (req: Request) => {
       currentDescription ? `Texte actuel : ${currentDescription}` : "",
       prompt ? `Dictee du technicien : ${prompt}` : "",
       instructions ? `Instructions : ${instructions}` : "",
-      "Reecris la description en tenant compte de la dictee et des instructions. Garde les faits, ameliore la forme. Reponds uniquement par la nouvelle description, sans guillemets ni explications.",
+      isPartnerStory
+        ? "Ecris le texte \"Pourquoi nous l'avons choisi\" a partir de la dictee. Reponds uniquement par le texte."
+        : "Reecris la description en tenant compte de la dictee et des instructions. Garde les faits, ameliore la forme. Reponds uniquement par la nouvelle description, sans guillemets ni explications.",
     ].filter(Boolean).join("\n\n");
 
     const resp = await fetch(url, {
