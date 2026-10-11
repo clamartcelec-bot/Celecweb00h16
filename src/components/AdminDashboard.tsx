@@ -5,11 +5,12 @@ import {
   LayoutDashboard, MapPin, ArrowUpRight,
   Receipt, Search, Camera, Plus, Trash2,
   Pencil, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
-  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Mic, Square, Merge
+  Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Mic, Square, Merge, Smartphone
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ConciergeTab } from '@/components/ConciergeTab';
 import { PartnersTab, type PartnerRow } from '@/components/PartnersTab';
+import { FieldCarnets } from '@/components/FieldCarnets';
 
 /* ── Types ── */
 
@@ -126,7 +127,7 @@ interface AdminDashboardProps {
 }
 
 type Section = 'communication' | 'commercial' | 'administratif';
-type SubTab = 'carnet' | 'partners' | 'concierge' | 'overview' | 'clients' | 'requests' | 'invoices' | 'admin_docs';
+type SubTab = 'carnet' | 'partners' | 'concierge' | 'overview' | 'clients' | 'requests' | 'invoices' | 'admin_docs' | 'field_carnets';
 
 const statusLabel: Record<string, string> = {
   new: 'Nouveau', to_call: 'A rappeler', in_progress: 'En cours',
@@ -156,6 +157,7 @@ const sectionSubTabs: Record<Section, { key: SubTab; label: string; icon: typeof
     { key: 'invoices', label: 'Factures', icon: Receipt },
   ],
   administratif: [
+    { key: 'field_carnets', label: 'Carnets de terrain', icon: Smartphone },
     { key: 'admin_docs', label: 'Documents', icon: FolderOpen },
   ],
 };
@@ -501,6 +503,11 @@ export function AdminDashboard({ onClose }: AdminDashboardProps) {
           {/* ── COMMUNICATION: Concierge ── */}
           {!loading && subTab === 'concierge' && (
             <ConciergeTab />
+          )}
+
+          {/* ── ADMINISTRATIF: Carnets de terrain ── */}
+          {!loading && subTab === 'field_carnets' && (
+            <FieldCarnets profiles={profiles} />
           )}
 
           {/* ── ADMINISTRATIF ── */}

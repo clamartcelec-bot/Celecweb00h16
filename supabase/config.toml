@@ -1,6 +1,9 @@
 [functions.mobile-carnet]
 verify_jwt = false
 
+[functions.carnet-archive]
+verify_jwt = false
+
 [functions.carnet-media]
 verify_jwt = false
 
