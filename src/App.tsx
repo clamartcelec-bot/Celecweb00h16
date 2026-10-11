@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Phone } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { LoginModal } from '@/components/LoginModal';
 import { PasswordResetModal } from '@/components/PasswordResetModal';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { ClientSpace } from '@/components/ClientSpace';
-import { CONCIERGE_SESSION_PARAM } from '@/lib/conciergeSession';
-import { findPresentedEntry } from '@/concierge/services/presence';
 import { copy } from '@/site/content';
 import { EASE_OUT } from '@/site/motion';
 import { normalizeBrandName, type CityGroup, type ContactCategory, type Lang, type Partner, type Photo, type Theme, type View } from '@/site/types';
@@ -17,10 +14,15 @@ import { MapPage } from '@/site/map/MapPage';
 import { Hero } from '@/site/components/Hero';
 import { ClientHome } from '@/site/components/ClientHome';
 import { AccountMenu } from '@/site/components/AccountMenu';
-import { CarnetShowcase, MapSection, PartnersStrip, ServicesSection, StatsBand, TeamSection } from '@/site/components/HomeSections';
+import { CarnetShowcase, PartnersStrip, StatsBand } from '@/site/components/HomeSections';
+import { FamiliesSection, TerritorySection } from '@/site/components/HomeFamilies';
+import { FamilyPage } from '@/site/pages/FamilyPage';
+import { isFamilyKey, topicById, type FamilyKey } from '@/site/taxonomy';
 import { ContactSection } from '@/site/components/ContactSection';
 import { ConciergeTransition } from '@/site/components/ConciergeTransition';
-import { ConciergePage } from '@/concierge/components/ConciergePage';
+import { useConcierge, type ConciergeAction, type ConciergeContext } from '@/site/concierge/useConcierge';
+import { FloatingRobot } from '@/site/concierge/FloatingRobot';
+import { ConciergeChat } from '@/site/concierge/ConciergeChat';
 import { EntrySheet } from '@/site/components/EntrySheet';
 import { BrandSheet } from '@/site/components/BrandSheet';
 import { CallbackSheet } from '@/site/components/CallbackSheet';
@@ -56,6 +58,9 @@ function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [view, setView] = useState<View>('home');
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [photosStatus, setPhotosStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [familyKey, setFamilyKey] = useState<FamilyKey>('electricite');
+  const [carnetTopic, setCarnetTopic] = useState<string | null>(null);
   const [cityGroups, setCityGroups] = useState<CityGroup[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [contactCategory, setContactCategory] = useState<ContactCategory | null>(null);
@@ -66,12 +71,11 @@ function App() {
   const [carnetDetail, setCarnetDetail] = useState<Photo | null>(null);
   const [brandView, setBrandView] = useState<{ name: string; partner: Partner | null } | null>(null);
   const [brandReturn, setBrandReturn] = useState<string | null>(null);
-  const [conciergeReturn, setConciergeReturn] = useState<string | null>(null);
+  const [fromChat, setFromChat] = useState(false);
   const [portal, setPortal] = useState<{ x: number; y: number } | null>(null);
   const [conciergeOpen, setConciergeOpen] = useState(false);
-  const [conciergeLive, setConciergeLive] = useState(false);
+  const [contactPrefill, setContactPrefill] = useState<{ text: string; phone: string; nonce: number } | null>(null);
   const pendingBrandRef = useRef<string | null>(null);
-  const pendingConciergeEntry = useRef(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [clientSpace, setClientSpace] = useState<'overview' | 'requests' | null>(null);
@@ -116,11 +120,13 @@ function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.from('photos').select(PHOTO_SELECT).eq('published', true).order('created_at', { ascending: false }).then(({ data }) => {
-      if (!data) return;
+  const loadPhotos = useCallback(() => {
+    if (!supabase) { setPhotosStatus('error'); return; }
+    setPhotosStatus('loading');
+    supabase.from('photos').select(PHOTO_SELECT).eq('published', true).order('created_at', { ascending: false }).then(({ data, error }) => {
+      if (error || !data) { setPhotosStatus('error'); return; }
       setPhotos(data);
+      setPhotosStatus('ready');
       const groups: Record<string, CityGroup> = {};
       data.forEach((p: Photo) => {
         if (!p.city) return;
@@ -129,10 +135,15 @@ function App() {
       });
       setCityGroups(Object.values(groups).sort((a, b) => b.count - a.count));
     });
+  }, []);
+
+  useEffect(() => {
+    loadPhotos();
+    if (!supabase) return;
     supabase.from('partners').select('*').eq('published', true).order('position').then(({ data }) => {
       if (data) setPartners(data);
     });
-  }, []);
+  }, [loadPhotos]);
 
   const go = useCallback((v: View, anchor?: string) => {
     setView(v);
@@ -152,19 +163,43 @@ function App() {
       setResetMode('update');
     }
     const params = new URLSearchParams(window.location.search);
-    const conciergeSession = params.get(CONCIERGE_SESSION_PARAM);
     const brand = params.get('brand');
+    const famille = params.get('famille');
+    const sujet = params.get('sujet');
+    if (params.get('vue') === 'entretien') { go('entretien'); return; }
+    if (isFamilyKey(famille)) { setFamilyKey(famille); go('family'); return; }
+    if (sujet !== null) { setCarnetTopic(topicById(sujet) ? sujet : null); go('carnet'); return; }
     if (brand) {
       pendingBrandRef.current = brand;
       go('partners');
       return;
     }
-    if (conciergeSession) {
-      pendingConciergeEntry.current = true;
-      setConciergeReturn(conciergeSession);
-      go('carnet');
+    if (window.location.pathname === '/concierge') {
+      window.history.replaceState(null, '', '/');
+      setConciergeOpen(true);
     }
   }, [go]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (view === 'family') params.set('famille', familyKey);
+    if (view === 'entretien') params.set('vue', 'entretien');
+    if (view === 'carnet') params.set('sujet', carnetTopic ?? '');
+    const query = params.toString();
+    const next = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+    if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(null, '', next);
+  }, [view, familyKey, carnetTopic]);
+
+  const openFamily = useCallback((id: FamilyKey) => {
+    if (id === 'entretien') { go('entretien'); return; }
+    setFamilyKey(id);
+    go('family');
+  }, [go]);
+
+  const openTopic = useCallback((id: string | null) => {
+    setCarnetTopic(id);
+    if (view !== 'carnet') go('carnet');
+  }, [view, go]);
 
   const findPartnerForBrand = useCallback(
     (name: string) => partners.find((p) => normalizeBrandName(p.name) === normalizeBrandName(name)) ?? null,
@@ -184,41 +219,15 @@ function App() {
     openBrand(brand, findPartnerForBrand(brand));
   }, [partners, openBrand, findPartnerForBrand]);
 
-  useEffect(() => {
-    if (!pendingConciergeEntry.current || !conciergeReturn) return;
-    let active = true;
-    findPresentedEntry(conciergeReturn).then(async (entry) => {
-      if (!active || !entry) return;
-      pendingConciergeEntry.current = false;
-      let full: Photo | null = null;
-      if (supabase) {
-        const { data } = await supabase.from('photos').select(PHOTO_SELECT).eq('id', entry.id).eq('published', true).maybeSingle();
-        full = data;
-      }
-      if (!active) return;
-      setCarnetDetail(full ?? {
-        id: entry.id,
-        title: entry.title,
-        city: entry.city,
-        lat: 0,
-        lng: 0,
-        description: entry.description,
-        author: 'CELEC',
-        image_url: entry.image_url,
-        created_at: new Date().toISOString(),
-        detected_brands: entry.brands,
-      });
-    });
-    return () => { active = false; };
-  }, [conciergeReturn]);
-
   const openCarnetDetail = (entry: Photo, fromBrand?: string) => {
+    setFromChat(false);
     setBrandView(null);
     setBrandReturn(fromBrand ?? null);
     setCarnetDetail(entry);
   };
 
   const closeAllOverlays = () => {
+    setFromChat(false);
     setCarnetDetail(null);
     setBrandView(null);
     setBrandReturn(null);
@@ -248,11 +257,54 @@ function App() {
     go('home', 'contact-box');
   };
 
+  const runConciergeActions = (actions: ConciergeAction[]) => {
+    for (const action of actions) {
+      if (action.type === 'navigate') {
+        setConciergeOpen(false);
+        if (action.view === 'contact') go('home', 'contact-box');
+        else if (action.view === 'family' && action.family && isFamilyKey(action.family)) openFamily(action.family);
+        else if (action.view === 'carnet') openTopic(null);
+        else if (['home', 'entretien', 'map', 'partners', 'blocktech'].includes(action.view)) go(action.view as View);
+      } else if (action.type === 'filter_carnet' && topicById(action.topic)) {
+        setConciergeOpen(false);
+        setCarnetTopic(action.topic);
+        go('carnet');
+      } else if (action.type === 'prefill_contact') {
+        setConciergeOpen(false);
+        const details = [action.description, action.commune && `Commune : ${action.commune}`, action.first_name && `Prénom : ${action.first_name}`].filter(Boolean).join('\n');
+        setContactCategory(action.category);
+        setContactPrefill({ text: details, phone: action.phone, nonce: Date.now() });
+        go('home', 'contact-box');
+      }
+    }
+  };
+
+  const concierge = useConcierge(runConciergeActions);
+  const conciergeContext = useCallback((): ConciergeContext => ({
+    page: view,
+    family: view === 'family' ? familyKey : undefined,
+    topic: view === 'carnet' ? carnetTopic : undefined,
+  }), [view, familyKey, carnetTopic]);
+
+  const openFromChat = (entry: Photo) => {
+    setConciergeOpen(false);
+    setBrandView(null);
+    setBrandReturn(null);
+    setFromChat(true);
+    setCarnetDetail(entry);
+  };
+
+  const partnerFromChat = (partner: Partner) => {
+    setConciergeOpen(false);
+    setFromChat(true);
+    openBrand(partner.name, partner);
+  };
+
   if (view === 'admin') {
     return <AdminDashboard onClose={() => go('home')} />;
   }
 
-  const receding = conciergeOpen ? (conciergeLive ? '2' : '1') : portal ? '1' : undefined;
+  const receding = conciergeOpen || portal ? '1' : undefined;
 
   return (
     <>
@@ -283,7 +335,7 @@ function App() {
       <main className="s-main">
         <AnimatePresence mode="wait">
           <motion.div
-            key={view}
+            key={view === 'family' ? `family-${familyKey}` : view}
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
@@ -307,6 +359,8 @@ function App() {
                   onCategory={setContactCategory}
                   userEmail={userEmail}
                   onLogin={() => setLoginOpen(true)}
+                  prefill={contactPrefill}
+                  transcribe={concierge.transcribe}
                 />
               </>
             )}
@@ -316,30 +370,58 @@ function App() {
                   t={t}
                   photos={photos}
                   onCallback={() => setCallbackOpen(true)}
-                  onSeeWork={() => go('home', 'carnet-apercu')}
+                  onSeeWork={() => openTopic(null)}
                   onCategory={pickCategory}
                   onMap={() => go('map')}
                   onOpenEntry={(e) => openCarnetDetail(e)}
                   onConcierge={enterConcierge}
                 />
                 <StatsBand t={t} entries={photos.length} cities={cityGroups.length} partners={partners.length} />
-                <CarnetShowcase t={t} photos={photos} onOpen={(e) => openCarnetDetail(e)} onSeeAll={() => go('carnet')} />
-                <ServicesSection t={t} onBlockTech={() => go('blocktech')} />
-                <MapSection t={t} photos={photos} onOpen={(e) => openCarnetDetail(e)} onExpand={() => go('map')} />
+                <FamiliesSection
+                  photos={photos}
+                  onFamily={openFamily}
+                  onEntretien={() => go('entretien')}
+                  onCategory={pickCategory}
+                  onBlockTech={() => go('blocktech')}
+                  blocktechNote={t.blocktechNote}
+                />
+                <CarnetShowcase t={t} photos={photos} onOpen={(e) => openCarnetDetail(e)} onSeeAll={() => openTopic(null)} />
+                <TerritorySection t={t} photos={photos} onOpen={(e) => openCarnetDetail(e)} onExpand={() => go('map')} />
                 <PartnersStrip t={t} partners={partners} onOpen={(p) => openBrand(p.name, p)} onSeeAll={() => go('partners')} />
-                <TeamSection t={t} />
                 <ContactSection
                   t={t}
                   category={contactCategory}
                   onCategory={setContactCategory}
                   userEmail={userEmail}
                   onLogin={() => setLoginOpen(true)}
+                  prefill={contactPrefill}
+                  transcribe={concierge.transcribe}
                 />
               </>
             )}
             {view === 'map' && <MapPage t={t} photos={photos} onOpen={(e) => openCarnetDetail(e)} onBack={() => go('home', 'carte')} />}
-            {view === 'carnet' && <CarnetPage t={t} onOpen={(e) => openCarnetDetail(e)} />}
-            {view === 'partners' && <PartnersPage t={t} partners={partners} onOpen={(p) => openBrand(p.name, p)} />}
+            {(view === 'family' || view === 'entretien') && (
+              <FamilyPage
+                family={view === 'entretien' ? 'entretien' : familyKey}
+                photos={photos}
+                onOpen={(e) => openCarnetDetail(e)}
+                onFamily={openFamily}
+                onTopic={openTopic}
+                onCategory={pickCategory}
+              />
+            )}
+            {view === 'carnet' && (
+              <CarnetPage
+                t={t}
+                photos={photos}
+                status={photosStatus}
+                onRetry={loadPhotos}
+                topic={carnetTopic}
+                onTopic={setCarnetTopic}
+                onOpen={(e) => openCarnetDetail(e)}
+              />
+            )}
+            {view === 'partners' && <PartnersPage t={t} partners={partners} onOpen={(p) => openBrand(p.name, p)} onBlockTech={() => go('blocktech')} />}
             {view === 'blocktech' && <BlockTechPage t={t} />}
             {view === 'admin-login' && (
               <AdminLogin t={t} onSuccess={() => go('admin')} onForgot={() => { setResetExpired(false); setResetMode('request'); }} />
@@ -350,22 +432,17 @@ function App() {
 
       <SiteFooter t={t} onNavigate={go} onConcierge={() => enterConcierge()} />
 
-      <AnimatePresence>
-        {view !== 'home' && (
-          <motion.button
-            className="s-fab"
-            aria-label={t.ctaCallback}
-            onClick={() => setCallbackOpen(true)}
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
-            whileHover={{ scale: 1.06 }}
-            whileTap={{ scale: 0.94 }}
-          >
-            <Phone size={20} />
-          </motion.button>
-        )}
-      </AnimatePresence>
+      {!conciergeOpen && !portal && view !== 'admin-login' && (
+        <FloatingRobot
+          api={concierge}
+          context={conciergeContext}
+          photos={photos}
+          partners={partners}
+          onOpenEntry={(e) => openCarnetDetail(e)}
+          onOpenPartner={(p) => openBrand(p.name, p)}
+          onExpand={() => setConciergeOpen(true)}
+        />
+      )}
 
       <AnimatePresence>
         {carnetDetail && (
@@ -375,7 +452,7 @@ function App() {
             entry={carnetDetail}
             userEmail={userEmail}
             brandReturn={brandReturn}
-            showConciergeReturn={Boolean(conciergeReturn)}
+            onConciergeReturn={fromChat ? () => { closeAllOverlays(); setConciergeOpen(true); } : undefined}
             isLinkedBrand={(b) => Boolean(findPartnerForBrand(b))}
             onBrand={(b) => openBrand(b, findPartnerForBrand(b))}
             onBackToBrand={() => brandReturn && openBrand(brandReturn, findPartnerForBrand(brandReturn))}
@@ -390,7 +467,7 @@ function App() {
             partner={brandView.partner}
             entries={brandEntries}
             userEmail={userEmail}
-            showConciergeReturn={Boolean(conciergeReturn)}
+            onConciergeReturn={fromChat ? () => { closeAllOverlays(); setConciergeOpen(true); } : undefined}
             onOpenEntry={(e) => openCarnetDetail(e, brandView.name)}
             onClose={closeAllOverlays}
           />
@@ -422,11 +499,16 @@ function App() {
 
     <AnimatePresence>
       {conciergeOpen && (
-        <ConciergePage
+        <ConciergeChat
           key="concierge"
-          overlay
-          onClose={() => { setConciergeOpen(false); setConciergeLive(false); }}
-          onLiveChange={setConciergeLive}
+          api={concierge}
+          context={conciergeContext}
+          photos={photos}
+          partners={partners}
+          signedIn={Boolean(userEmail)}
+          onOpenEntry={openFromChat}
+          onOpenPartner={partnerFromChat}
+          onClose={() => setConciergeOpen(false)}
         />
       )}
     </AnimatePresence>

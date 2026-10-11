@@ -4,11 +4,12 @@ import {
   X, ShieldCheck, Users, Mail, Phone, Calendar, ChevronDown, ChevronUp,
   LayoutDashboard, MapPin, ArrowUpRight,
   Receipt, Search, Camera, Plus, Trash2,
-  Pencil, Upload, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
+  Pencil, Image as ImageIcon, Eye, EyeOff, Save, Handshake,
   Megaphone, Briefcase, FolderOpen, Settings, ArrowLeft, Tag, Bot, Mic, Square, Merge
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { ConciergeTab } from '@/components/ConciergeTab';
+import { PartnersTab, type PartnerRow } from '@/components/PartnersTab';
 
 /* ── Types ── */
 
@@ -74,15 +75,6 @@ interface PhotoImage {
   position: number;
 }
 
-interface PartnerRow {
-  id: string;
-  name: string;
-  logo_url: string;
-  description: string;
-  position: number;
-  published: boolean;
-  created_at: string;
-}
 
 interface CarnetSettings {
   id: number;
@@ -1648,118 +1640,6 @@ function CarnetTab({ photos, partners, onRefresh }: { photos: PhotoRow[]; partne
             </div>
           );
         })}
-      </div>
-    </>
-  );
-}
-
-/* ── Partners Tab ── */
-function PartnersTab({ partners, onRefresh }: { partners: PartnerRow[]; onRefresh: () => Promise<void> }) {
-  const [mode, setMode] = useState<'list' | 'add' | 'edit'>('list');
-  const [editId, setEditId] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [published, setPublished] = useState(true);
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-  const [deleting, setDeleting] = useState<string | null>(null);
-
-  const resetForm = () => { setName(''); setDescription(''); setPublished(true); setLogoFile(null); setLogoPreview(''); setEditId(null); setErr(''); };
-
-  const openAdd = () => { resetForm(); setMode('add'); };
-  const openEdit = (p: PartnerRow) => {
-    setName(p.name); setDescription(p.description); setPublished(p.published); setLogoPreview(p.logo_url); setEditId(p.id); setErr(''); setMode('edit');
-  };
-
-  const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setLogoFile(f);
-    setLogoPreview(URL.createObjectURL(f));
-  };
-
-  const handleSave = async () => {
-    if (!supabase || !name.trim()) { setErr('Nom requis.'); return; }
-    setSaving(true); setErr('');
-    try {
-      let logoUrl = logoPreview;
-      if (logoFile) {
-        const ext = logoFile.name.split('.').pop() ?? 'png';
-        const path = `partners/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-        const { error } = await supabase.storage.from('photos').upload(path, logoFile, { contentType: logoFile.type, upsert: false });
-        if (error) throw new Error(error.message);
-        const { data } = supabase.storage.from('photos').getPublicUrl(path);
-        logoUrl = data.publicUrl;
-      }
-      const row = { name: name.trim(), description: description.trim(), published, logo_url: logoUrl, position: partners.length };
-      if (mode === 'add') {
-        const { error } = await supabase.from('partners').insert(row);
-        if (error) throw new Error(error.message);
-      } else if (editId) {
-        const { error } = await supabase.from('partners').update(row).eq('id', editId);
-        if (error) throw new Error(error.message);
-      }
-      await onRefresh(); setMode('list'); resetForm();
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Erreur inconnue');
-    } finally { setSaving(false); }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!supabase) return;
-    setDeleting(id);
-    await supabase.from('partners').delete().eq('id', id);
-    await onRefresh(); setDeleting(null);
-  };
-
-  if (mode === 'add' || mode === 'edit') {
-    return (
-      <div className="crn-form">
-        <div className="crn-form-head">
-          <h3>{mode === 'add' ? 'Nouveau partenaire' : 'Modifier le partenaire'}</h3>
-          <button className="crn-back" onClick={() => { setMode('list'); resetForm(); }}>Annuler</button>
-        </div>
-        {logoPreview && <div className="crn-gallery"><div className="crn-gallery-item"><img src={logoPreview} alt="Logo" /></div></div>}
-        <label className="crn-gallery-add" style={{ display: 'inline-flex', marginBottom: 12 }}>
-          <Upload size={16} /> Logo
-          <input type="file" accept="image/*" onChange={handleLogoFile} hidden />
-        </label>
-        <div className="crn-fields">
-          <label><span>Nom</span><input className="field" placeholder="Ex: Legrand" value={name} onChange={e => setName(e.target.value)} /></label>
-          <label><span>Description</span><textarea className="field crn-textarea" placeholder="Pourquoi on travaille avec eux..." value={description} onChange={e => setDescription(e.target.value)} /></label>
-          <label className="crn-check"><input type="checkbox" checked={published} onChange={e => setPublished(e.target.checked)} /><span>Visible sur le site</span></label>
-        </div>
-        {err && <p className="adm-msg adm-err">{err}</p>}
-        <button className="btn-pink crn-save" onClick={handleSave} disabled={saving}>
-          <Save size={15} /> {saving ? 'Enregistrement...' : mode === 'add' ? 'Creer' : 'Enregistrer'}
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <div className="crn-head">
-        <span className="crn-count">{partners.length} partenaire{partners.length > 1 ? 's' : ''}</span>
-        <button className="btn-pink crn-add" onClick={openAdd}><Plus size={15} /> Ajouter</button>
-      </div>
-      {partners.length === 0 && <div className="crn-empty"><Handshake size={40} /><p>Aucun partenaire.</p><span>Ajoutez votre premier partenaire.</span></div>}
-      <div className="crn-grid">
-        {partners.map(p => (
-          <div key={p.id} className="crn-card">
-            {p.logo_url ? <div className="crn-img-wrap"><img src={p.logo_url} alt={p.name} className="crn-img" style={{ objectFit: 'contain', padding: 12 }} /></div> : <div className="crn-img crn-img-empty"><Handshake size={24} /></div>}
-            <div className="crn-card-body">
-              <div className="crn-card-top"><h4>{p.name}</h4><span className="crn-pub">{p.published ? <Eye size={13} /> : <EyeOff size={13} />}</span></div>
-              {p.description && <p className="crn-card-desc">{p.description}</p>}
-              <div className="crn-card-actions">
-                <button className="crn-btn-edit" onClick={() => openEdit(p)}><Pencil size={13} /> Modifier</button>
-                <button className="crn-btn-del" onClick={() => handleDelete(p.id)} disabled={deleting === p.id}><Trash2 size={13} /> {deleting === p.id ? '...' : 'Supprimer'}</button>
-              </div>
-            </div>
-          </div>
-        ))}
       </div>
     </>
   );
