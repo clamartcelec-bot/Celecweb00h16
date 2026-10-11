@@ -165,3 +165,18 @@ html.dark .s-dock.is-corner .s-dock-halo { background: radial-gradient(circle, r
   .s-dock, .s-dock-btn, .s-cx-card, .s-stage-entry, .s-stage-img img { transition: none; }
   .s-cx-dot, .s-cx-send.is-rec, .s-dock-halo, .s-dock-dots i, .s-dock-rec, .s-cxp-glow { animation: none !important; }
 }
+
+.s-stage-veil { position: fixed; inset: 0; z-index: 157; background: rgba(15, 17, 21, 0.38); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.s-stage.is-request { left: 50%; top: 50%; right: auto; bottom: auto; translate: -50% -50%; width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 160px); padding: 32px 28px 24px; z-index: 159; overflow: visible auto; }
+.s-stage-anchor { position: absolute; top: -78px; right: -36px; width: 112px; height: 8px; pointer-events: none; }
+.s-dock.is-moving .s-dock-btn { animation: s-dock-hop 0.9s var(--s-ease) both; }
+.s-dock.is-guiding .s-dock-btn { filter: drop-shadow(0 14px 24px rgba(21, 22, 26, 0.22)); }
+.s-dock.is-pressing .s-dock-btn { transform: translateY(6px) scale(0.92) rotate(-4deg); }
+@keyframes s-dock-hop { 0% { transform: rotate(0); } 30% { transform: rotate(-7deg) translateY(-6px); } 70% { transform: rotate(5deg) translateY(-2px); } 100% { transform: rotate(0); } }
+@media (max-width: 640px) {
+  .s-stage.is-request { top: auto; bottom: 16px; translate: -50% 0; max-height: calc(100dvh - 140px); }
+  .s-stage-anchor { top: -70px; right: 8px; width: 84px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .s-dock.is-moving .s-dock-btn { animation: none; }
+}

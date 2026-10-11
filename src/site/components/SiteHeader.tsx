@@ -57,7 +57,7 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.9, ease: EASE_SOFT, delay: 0.1 }}
       >
-        <button className="s-logo" onClick={() => navigate('home')} aria-label="CELEC">
+        <button className="s-logo" data-robot-target="nav-home" onClick={() => navigate('home')} aria-label="CELEC">
           CELEC<span>.</span>
         </button>
 
@@ -65,7 +65,7 @@ export function SiteHeader({ t, lang, theme, view, account, isAdmin, onLang, onT
           {links.map((link) => {
             const active = !link.anchor && view === link.view;
             return (
-              <button key={link.label} className={`s-nav-link ${active ? 'is-active' : ''}`} onClick={() => navigate(link.view, link.anchor)}>
+              <button key={link.label} data-robot-target={`nav-${link.anchor ?? link.view}`} className={`s-nav-link ${active ? 'is-active' : ''}`} onClick={() => navigate(link.view, link.anchor)}>
                 {link.label}
                 {active && <motion.span layoutId="nav-underline" className="s-nav-underline" />}
               </button>

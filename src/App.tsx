@@ -60,6 +60,7 @@ function App() {
   const [photosStatus, setPhotosStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [familyKey, setFamilyKey] = useState<FamilyKey>('electricite');
   const [carnetTopic, setCarnetTopic] = useState<string | null>(null);
+  const [carnetQuery, setCarnetQuery] = useState('');
   const [cityGroups, setCityGroups] = useState<CityGroup[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [contactCategory, setContactCategory] = useState<ContactCategory | null>(null);
@@ -413,6 +414,8 @@ function App() {
                 onRetry={loadPhotos}
                 topic={carnetTopic}
                 onTopic={setCarnetTopic}
+                query={carnetQuery}
+                onQuery={setCarnetQuery}
                 onOpen={(e) => openCarnetDetail(e)}
               />
             )}
@@ -507,6 +510,13 @@ function App() {
         onOpenEntry={(e) => (conciergeOpen ? openFromChat(e) : openCarnetDetail(e))}
         onOpenPartner={(p) => (conciergeOpen ? partnerFromChat(p) : openBrand(p.name, p))}
         onOpenChat={enterConcierge}
+        guide={{
+          go: (v, family) => runConciergeActions([{ type: 'navigate', view: v, family }]),
+          topic: (id) => { setCarnetQuery(''); setCarnetTopic(id); },
+          type: setCarnetQuery,
+          openEntry: (id) => { const e = photos.find((p) => p.id === id); if (e) openCarnetDetail(e); },
+          openPartner: (id) => { const p = partners.find((x) => x.id === id); if (p) openBrand(p.name, p); },
+        }}
       />
     )}
     </>

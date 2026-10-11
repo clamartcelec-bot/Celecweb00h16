@@ -32,13 +32,15 @@ export const CELEC_CONCIERGE_TOOLS: FunctionTool[] = [
     type: 'function',
     name: 'navigate',
     description:
-      'Emmène le visiteur sur une page du site quand il le demande ou quand cette page répond mieux à sa question (« je vous y emmène »). Pour le carnet, tu peux préciser un sujet.',
+      'Tu te déplaces toi-même dans le site : tu cliques sur le menu, la page change, et dans le carnet tu tapes la recherche sous les yeux du visiteur. À utiliser dès qu’une page répond à sa question (« je vous emmène dans le carnet et je cherche … »). Pour montrer des réalisations : view = carnet + search.',
     parameters: {
       type: 'object',
       properties: {
         view: { type: 'string', enum: ['home', 'carnet', 'map', 'partners', 'blocktech', 'entretien', 'family', 'contact'] },
         family: { type: 'string', enum: ['electricite', 'confort', 'securite', 'reseau', 'energie'], description: 'Obligatoire si view = family.' },
         topic: { type: 'string', description: 'Identifiant de sujet du carnet (liste fournie en contexte), seulement si view = carnet.' },
+        search: { type: 'string', description: 'Si view = carnet : 2 à 5 mots-clés que tu tapes dans la barre de recherche du carnet (ex. « éclairage LED bureaux », « tableau Legrand Clamart »).' },
+        entry_id: { type: 'string', description: 'Si view = carnet : identifiant d’une réalisation du contexte à ouvrir après la recherche.' },
       },
       required: ['view'],
       additionalProperties: false,
@@ -116,7 +118,7 @@ export const CELEC_CONCIERGE_TOOLS: FunctionTool[] = [
     type: 'function',
     name: 'show_carnet_entries',
     description:
-      'Affiche à l’écran des billets du carnet en preuve visuelle de ce que tu viens de dire. Utilise uniquement les identifiants renvoyés par search_carnet.',
+      'Montre des billets du carnet. Hors de la grande page de conversation, tu emmènes le visiteur dans le carnet et tu tapes la recherche (préfère navigate avec search). Utilise uniquement des identifiants du contexte ou de search_carnet.',
     parameters: {
       type: 'object',
       properties: {
@@ -138,7 +140,7 @@ export const CELEC_CONCIERGE_TOOLS: FunctionTool[] = [
     type: 'function',
     name: 'show_brand',
     description:
-      'Affiche la fiche d’une marque partenaire à l’écran quand le client cite cette marque. N’appelle cet outil que si la marque figure dans la liste des marques travaillées fournie en contexte.',
+      'Emmène le visiteur sur la page Partenaires et ouvre toi-même la fiche de la marque ou de l’artisan cité. N’appelle cet outil que si le nom figure dans la liste fournie en contexte.',
     parameters: {
       type: 'object',
       properties: {
@@ -264,7 +266,9 @@ export function buildConciergeInstructions(settings: ConciergeSettings | null): 
       '- Tu es le petit robot qui accompagne le visiteur sur tout le site. Il te parle en restant appuyé sur toi, ou en t’écrivant. Le visiteur t’a déjà vu : ne te présente pas, réponds directement.',
       greeting ? `- Si le visiteur dit seulement bonjour, tu peux t’inspirer de cette phrase d’accueil : « ${greeting} »` : '',
       '- Tu réponds vite et court : une ou deux phrases, puis tu laisses la parole.',
-      '- Tu connais le site : le contexte te donne la page où se trouve le visiteur, la liste des réalisations du carnet, des marques et des sujets. Appuie-toi d’abord sur ces contenus : montre une réalisation, emmène sur la bonne page (navigate), plutôt que de répondre de façon générale.',
+      '- Tu connais le site et ses chemins (PLAN DU SITE dans le contexte) : la page où se trouve le visiteur, les réalisations du carnet, les marques et les sujets. Appuie-toi d’abord sur ces contenus plutôt que de répondre de façon générale.',
+      '- Tu es un guide qui agit : pour montrer quelque chose, tu y emmènes le visiteur toi-même (navigate, avec search dans le carnet ; show_brand pour une marque). Annonce le chemin en une courte phrase pendant que tu te déplaces, puis commente ce qui apparaît.',
+      '- Seule exception : la prise de rendez-vous ne change jamais de page, elle s’ouvre dans une fenêtre au centre de l’écran (begin_appointment_flow).',
     ].filter(Boolean).join('\n'),
   );
 

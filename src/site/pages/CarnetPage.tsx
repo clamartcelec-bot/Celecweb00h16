@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertCircle, ArrowLeft, BookOpen, Loader2, RotateCcw, Shuffle } from 'lucide-react';
+import { AlertCircle, ArrowLeft, BookOpen, Loader2, RotateCcw, Search, Shuffle, X } from 'lucide-react';
 import type { Copy } from '@/site/content';
 import { EASE_OUT } from '@/site/motion';
 import { PageIntro } from '@/site/components/PageIntro';
 import { EntryCard } from '@/site/components/EntryCard';
-import { buildMix, topicCounts } from '@/site/carnetMix';
-import { TOPICS, topicById } from '@/site/taxonomy';
+import { buildMix, searchCarnet, topicCounts, type MixSegment } from '@/site/carnetMix';
+import { TOPICS, topicById, topicsOf } from '@/site/taxonomy';
 import { fmtDate, type Photo } from '@/site/types';
 
 const STEP = 12;
@@ -19,10 +19,12 @@ interface Props {
   onRetry: () => void;
   topic: string | null;
   onTopic: (topic: string | null) => void;
+  query: string;
+  onQuery: (query: string) => void;
   onOpen: (entry: Photo) => void;
 }
 
-export function CarnetPage({ t, photos, status, onRetry, topic, onTopic, onOpen }: Props) {
+export function CarnetPage({ t, photos, status, onRetry, topic, onTopic, query, onQuery, onOpen }: Props) {
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1e9));
   const [shown, setShown] = useState(STEP);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -30,7 +32,11 @@ export function CarnetPage({ t, photos, status, onRetry, topic, onTopic, onOpen 
   const prevTopic = useRef(topic);
   const goingBack = useRef(false);
 
-  const segments = useMemo(() => buildMix(photos, topic, seed), [photos, topic, seed]);
+  const searching = query.trim().length >= 2;
+  const segments = useMemo<MixSegment[]>(
+    () => (searching ? [{ key: 'search', label: null, items: searchCarnet(topic ? photos.filter((p) => topicsOf(p).includes(topic)) : photos, query) }] : buildMix(photos, topic, seed)),
+    [photos, topic, seed, query, searching],
+  );
   const total = segments.reduce((n, s) => n + s.items.length, 0);
   const counts = useMemo(() => topicCounts(photos), [photos]);
   const chips = useMemo(() => TOPICS.filter((tp) => (counts.get(tp.id) ?? 0) > 0).sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0)), [counts]);
@@ -46,6 +52,8 @@ export function CarnetPage({ t, photos, status, onRetry, topic, onTopic, onOpen 
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [topic]);
+
+  useEffect(() => setShown(STEP), [query]);
 
   useEffect(() => {
     if (done || status !== 'ready') return;
@@ -68,17 +76,34 @@ export function CarnetPage({ t, photos, status, onRetry, topic, onTopic, onOpen 
     <div className="s-page s-page--wide">
       <PageIntro eyebrow={<><BookOpen size={14} /> CELEC</>} title={t.carnetTitle} lead={t.carnetPageLead} />
 
+      <label className={`s-cx-search ${searching ? 'is-on' : ''}`} data-robot-target="carnet-search">
+        <Search size={18} aria-hidden="true" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          placeholder="Rechercher une réalisation : éclairage LED bureaux, tableau, Legrand, Clamart…"
+          aria-label="Rechercher dans le carnet"
+        />
+        {query && <button type="button" onClick={() => onQuery('')} aria-label="Effacer la recherche"><X size={16} /></button>}
+      </label>
+
       <div className="s-cx-bar" role="toolbar" aria-label="Filtrer le Carnet par sujet">
         <button className={`s-cx-chip ${!topic ? 'is-on' : ''}`} onClick={() => onTopic(null)}>Tout</button>
         {chips.map((tp) => (
-          <button key={tp.id} className={`s-cx-chip ${topic === tp.id ? 'is-on' : ''}`} onClick={() => onTopic(tp.id)} aria-pressed={topic === tp.id}>
+          <button key={tp.id} data-robot-target={`topic-${tp.id}`} className={`s-cx-chip ${topic === tp.id ? 'is-on' : ''}`} onClick={() => onTopic(tp.id)} aria-pressed={topic === tp.id}>
             {tp.name}<em>{counts.get(tp.id)}</em>
           </button>
         ))}
       </div>
 
       <div className="s-cx-head">
-        {focus ? (
+        {searching ? (
+          <div className="s-cx-focus" aria-live="polite">
+            <strong>{total ? `${total} réalisation${total > 1 ? 's' : ''} pour « ${query.trim()} »` : `Aucune réalisation pour « ${query.trim()} »`}</strong>
+            <span>{total ? 'Les plus proches de votre recherche en premier.' : 'Essayez un autre mot : une marque, un type de travaux ou une commune.'}</span>
+          </div>
+        ) : focus ? (
           <>
             <button className="s-cx-back" onClick={back}><ArrowLeft size={15} /> Retour</button>
             <div className="s-cx-focus">
@@ -95,13 +120,13 @@ export function CarnetPage({ t, photos, status, onRetry, topic, onTopic, onOpen 
 
       <AnimatePresence mode="wait">
         <motion.div
-          key={`${topic ?? 'all'}-${seed}`}
+          key={searching ? `q-${query.trim()}` : `${topic ?? 'all'}-${seed}`}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.4, ease: EASE_OUT }}
         >
-          {focus && segments[0].items.length === 0 && status === 'ready' && (
+          {!searching && focus && segments[0].items.length === 0 && status === 'ready' && (
             <div className="s-empty s-cx-empty"><BookOpen size={20} /><p>Pas encore de billet publié sur « {focus.name} ». Voici des sujets voisins.</p></div>
           )}
           {segments.map((seg, si) => {
@@ -123,6 +148,7 @@ export function CarnetPage({ t, photos, status, onRetry, topic, onTopic, onOpen 
                     return (
                       <motion.div
                         key={entry.id}
+                        data-robot-target={`entry-${entry.id}`}
                         className={`s-bento-cell ${pattern}`}
                         initial={{ opacity: 0, y: 30 }}
                         whileInView={{ opacity: 1, y: 0 }}
@@ -150,7 +176,8 @@ export function CarnetPage({ t, photos, status, onRetry, topic, onTopic, onOpen 
           </div>
         )}
         {status === 'ready' && done && (
-          photos.length === 0 ? (
+          photos.length === 0 || (searching && total === 0) ? (
+            searching ? null :
             <span className="s-state">{t.carnetEmpty}</span>
           ) : focus ? (
             <div className="s-cx-end">

@@ -8,6 +8,7 @@ import type { ConciergeApi } from './useConcierge';
 import { ConciergeStage } from './ConciergeStage';
 import { usePressToTalk } from './usePressToTalk';
 import { dockLines, HOLD_HINT } from './dockLines';
+import { useRobotGuide, type GuideHandlers } from './useRobotGuide';
 
 interface Props {
   api: ConciergeApi;
@@ -20,6 +21,7 @@ interface Props {
   onOpenEntry: (entry: Photo) => void;
   onOpenPartner: (partner: Partner) => void;
   onOpenChat: () => void;
+  guide: GuideHandlers;
 }
 
 const RATIO = 458 / 552;
@@ -27,17 +29,34 @@ const HEADER = 72;
 
 interface Target { key: string; x: number; y: number; w: number; align: 'start' | 'center' | 'end' }
 
-function measure(): Target {
+const ANCHOR_RANK: Record<string, number> = { modal: 3, chat: 2, hero: 1 };
+
+function roamSpots(vw: number, vh: number, w: number) {
+  const h = w * RATIO;
+  const g = vw < 640 ? 12 : 24;
+  const bottom = vh - h - g;
+  if (vw < 640) return [[vw - w - g, bottom], [g, bottom], [vw - w - g, vh * 0.55]];
+  return [
+    [vw - w - g, bottom],
+    [vw - w - g, vh * 0.42],
+    [vw * 0.5 - w / 2, bottom],
+    [g, bottom],
+    [vw - w - g, HEADER + 32],
+    [g, vh * 0.45],
+  ];
+}
+
+function measure(roam: number): Target {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const anchors = Array.from(document.querySelectorAll<HTMLElement>('[data-robot-anchor]'))
-    .sort((a, b) => Number(b.dataset.robotAnchor === 'chat') - Number(a.dataset.robotAnchor === 'chat'));
+    .sort((a, b) => (ANCHOR_RANK[b.dataset.robotAnchor ?? ''] ?? 0) - (ANCHOR_RANK[a.dataset.robotAnchor ?? ''] ?? 0));
   let t: Omit<Target, 'align'> | null = null;
   for (const a of anchors) {
     const r = a.getBoundingClientRect();
     if (!r.width) continue;
     const mid = r.top + (r.width * RATIO) / 2;
-    if (mid > HEADER && mid < vh - 40) {
+    if (a.dataset.robotAnchor === 'modal' || (mid > HEADER && mid < vh - 40)) {
       t = { key: a.dataset.robotAnchor ?? 'anchor', x: r.left, y: r.top, w: r.width };
       break;
     }
@@ -45,8 +64,9 @@ function measure(): Target {
   if (!t) {
     const small = vw < 640;
     const w = small ? 88 : 116;
-    const gap = small ? 12 : 24;
-    t = { key: 'corner', x: vw - w - gap, y: vh - w * RATIO - gap, w };
+    const spots = roamSpots(vw, vh, w);
+    const [sx, sy] = spots[roam % spots.length];
+    t = { key: `roam-${roam % spots.length}`, x: sx, y: sy, w };
   }
   const bubble = Math.min(300, vw - 24);
   const align = t.x + t.w >= bubble + 12 ? 'end' : vw - t.x >= bubble + 12 ? 'start' : 'center';
@@ -55,7 +75,7 @@ function measure(): Target {
 
 const ROBOT_STATE = { ready: 'idle', connecting: 'thinking', listening: 'listening', thinking: 'thinking', speaking: 'speaking' } as const;
 
-export function RobotDock({ api, lang, page, userName, chatOpen, photos, partners, onOpenEntry, onOpenPartner, onOpenChat }: Props) {
+export function RobotDock({ api, lang, page, userName, chatOpen, photos, partners, onOpenEntry, onOpenPartner, onOpenChat, guide }: Props) {
   const reduce = useReducedMotion();
   const robot = useRef<RobotElement | null>(null);
   const x = useMotionValue(-400);
@@ -63,7 +83,12 @@ export function RobotDock({ api, lang, page, userName, chatOpen, photos, partner
   const w = useMotionValue(116);
   const current = useRef<Target | null>(null);
   const flying = useRef(false);
-  const [spot, setSpot] = useState<{ key: string; align: Target['align'] }>({ key: 'corner', align: 'end' });
+  const [spot, setSpot] = useState<{ key: string; align: Target['align'] }>({ key: 'roam-0', align: 'end' });
+  const [roam, setRoam] = useState(0);
+  const [moving, setMoving] = useState(false);
+  const tour = useRobotGuide(api.guide, api.guideDone, { x, y, w, robot }, guide, { page, chatOpen }, Boolean(reduce));
+  const touring = useRef(false);
+  touring.current = tour.active;
   const [menu, setMenu] = useState(false);
   const [invite, setInvite] = useState(true);
   const [lineIndex, setLineIndex] = useState(0);
@@ -75,25 +100,30 @@ export function RobotDock({ api, lang, page, userName, chatOpen, photos, partner
   }, [api]));
 
   const place = useCallback(() => {
-    const t = measure();
+    if (touring.current) {
+      current.current = { key: 'guide', x: x.get(), y: y.get(), w: w.get(), align: 'end' };
+      return;
+    }
+    const t = measure(roam);
     const prev = current.current;
     current.current = t;
     if (!prev || reduce) {
       x.set(t.x); y.set(t.y); w.set(t.w);
     } else if (prev.key !== t.key || flying.current) {
       flying.current = true;
-      const spring = { type: 'spring', stiffness: 90, damping: 17, mass: 1 } as const;
+      setMoving(true);
+      const spring = { type: 'spring', stiffness: 70, damping: 15, mass: 1.1 } as const;
       animate(x, t.x, spring);
       animate(w, t.w, spring);
       void animate(y, t.y, spring).then(() => {
-        if (current.current === t) flying.current = false;
+        if (current.current === t) { flying.current = false; setMoving(false); }
       });
       if (prev.key !== t.key) void robot.current?.wiggleAntenna?.();
     } else {
       x.set(t.x); y.set(t.y); w.set(t.w);
     }
     setSpot((s) => (s.key === t.key && s.align === t.align ? s : { key: t.key, align: t.align }));
-  }, [reduce, w, x, y]);
+  }, [reduce, w, x, y, roam]);
 
   useEffect(() => {
     let frame = 0;
@@ -117,12 +147,18 @@ export function RobotDock({ api, lang, page, userName, chatOpen, photos, partner
     setMenu(false);
     setInvite(true);
     setLineIndex(0);
-    const t = window.setTimeout(() => void robot.current?.greet?.(), 700);
+    const t = window.setTimeout(() => { if (!touring.current) void robot.current?.greet?.(); }, 700);
     return () => window.clearTimeout(t);
   }, [page, chatOpen]);
 
   const idle = api.phase === 'ready' && !api.caption && !api.error;
-  const anchored = spot.key !== 'corner';
+  const anchored = !spot.key.startsWith('roam');
+
+  useEffect(() => {
+    if (!idle || menu || peek || anchored || tour.active || reduce) return;
+    const t = window.setTimeout(() => setRoam((n) => n + 1 + Math.floor(Math.random() * 3)), 9_000 + Math.random() * 6_000);
+    return () => window.clearTimeout(t);
+  }, [idle, menu, peek, anchored, tour.active, reduce, roam]);
 
   useEffect(() => {
     if (!idle || menu) return;
@@ -199,11 +235,12 @@ export function RobotDock({ api, lang, page, userName, chatOpen, photos, partner
   else if (invite && !chatOpen) bubble = { tone: 'invite', body: <><p>{line}</p><small><Mic size={12} /> {HOLD_HINT[lang]}</small></> };
 
   const showStage = api.stage && !(chatOpen && (api.stage.kind === 'entries' || api.stage.kind === 'partner'));
+  const centered = showStage && api.stage?.kind === 'request';
 
   return (
     <>
       <motion.div
-        className={`s-dock is-${spot.align} ${anchored ? 'is-anchored' : 'is-corner'} ${peek && !anchored ? 'is-peek' : ''}`}
+        className={`s-dock is-${spot.align} ${anchored ? 'is-anchored' : 'is-corner'} ${peek && !anchored && !tour.active ? 'is-peek' : ''} ${tour.active ? 'is-guiding' : ''} ${tour.pressing ? 'is-pressing' : ''} ${moving ? 'is-moving' : ''}`}
         style={{ x, y, width: w }}
       >
         <AnimatePresence mode="wait">
@@ -262,6 +299,17 @@ export function RobotDock({ api, lang, page, userName, chatOpen, photos, partner
       </motion.div>
 
       <AnimatePresence>
+        {centered && (
+          <motion.div
+            key="veil"
+            className="s-stage-veil"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            aria-hidden="true"
+          />
+        )}
         {showStage && api.stage && (
           <ConciergeStage
             key={JSON.stringify(api.stage).slice(0, 120)}

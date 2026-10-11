@@ -1,5 +1,31 @@
-import { TOPICS, topicById, topicsOf } from '@/site/taxonomy';
+import { classifyText, entryText, TOPICS, topicById, topicsOf } from '@/site/taxonomy';
 import type { Photo } from '@/site/types';
+
+const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/['’-]/g, ' ');
+
+export function searchCarnet(photos: Photo[], query: string, limit = 60) {
+  const words = norm(query).split(/\s+/).filter((w) => w.length >= 3).map((w) => w.replace(/s$/, ''));
+  const topics = new Set(classifyText(query));
+  return photos
+    .map((p) => {
+      const title = norm(p.title);
+      const city = norm(p.city);
+      const brands = norm((p.detected_brands ?? []).join(' '));
+      const text = norm(entryText(p));
+      let score = topicsOf(p).filter((t) => topics.has(t)).length * 2;
+      for (const w of words) {
+        if (title.includes(w)) score += 3;
+        if (brands.includes(w)) score += 3;
+        if (city.includes(w)) score += 2;
+        else if (text.includes(w)) score += 1;
+      }
+      return { p, score };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((r) => r.p);
+}
 
 export interface MixSegment {
   key: string;

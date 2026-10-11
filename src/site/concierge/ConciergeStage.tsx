@@ -90,12 +90,14 @@ export function ConciergeStage({ api, stage, photos, partners, onOpenEntry, onOp
   return (
     <motion.section
       className={`s-stage is-${stage.kind}`}
-      aria-label="Ce que le robot vous montre"
+      aria-label={stage.kind === 'request' ? 'Prise de rendez-vous' : 'Ce que le robot vous montre'}
+      role={stage.kind === 'request' ? 'dialog' : undefined}
       initial={{ opacity: 0, y: 24, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 16, scale: 0.97 }}
       transition={{ type: 'spring', stiffness: 260, damping: 26 }}
     >
+      {stage.kind === 'request' && <span className="s-stage-anchor" data-robot-anchor="modal" aria-hidden="true" />}
       <button className="s-stage-x" onClick={api.dismissStage} aria-label="Fermer"><X size={16} /></button>
       {stage.kind === 'entries' && <Entries stage={stage} photos={photos} onOpenEntry={onOpenEntry} />}
       {partner && <PartnerCard partner={partner} onOpenPartner={onOpenPartner} />}

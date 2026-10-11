@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import type { Partner, Photo } from '@/site/types';
 import { loadCompanyFacts, type CompanyFact } from '@/concierge/services/companyFacts';
 import { openRealtimeLink, type MicError, type RealtimeEvent, type RealtimeLink } from './realtimeLink';
-import { buildSiteContext, describePage, runTool, type RequestDraft, type Stage } from './conciergeTools';
+import { buildSiteContext, describePage, runTool, type Guide, type RequestDraft, type Stage } from './conciergeTools';
 
 export type ConciergeAction =
   | { type: 'navigate'; view: string; family?: string }
@@ -87,6 +87,8 @@ export function useConcierge({ photos, partners, userEmail, context, onActions }
   const [stage, setStage] = useState<Stage | null>(null);
   const [draft, setDraft] = useState<RequestDraft>({});
   const [appointment, setAppointmentState] = useState(false);
+  const [guide, setGuide] = useState<Guide | null>(null);
+  const lastSearch = useRef('');
   const [error, setError] = useState<string | null>(null);
   const [muted, setMutedState] = useState(() => { try { return localStorage.getItem(MUTED_KEY) === '1'; } catch { return false; } });
 
@@ -229,6 +231,12 @@ export function useConcierge({ photos, partners, userEmail, context, onActions }
         return next;
       }),
       setAppointment: (on: boolean) => setAppointmentState(on),
+      onChatPage: latest.current.context().page === 'concierge',
+      lastSearch,
+      guide: (step: Omit<Guide, 'id'>) => {
+        setStage((s) => (s?.kind === 'request' ? s : null));
+        setGuide({ ...step, id: Date.now() });
+      },
     };
     for (const c of calls) {
       let args: Record<string, unknown> = {};
@@ -440,7 +448,8 @@ export function useConcierge({ photos, partners, userEmail, context, onActions }
   useEffect(() => closeLink, [closeLink]);
 
   return {
-    turns, phase, caption, stage, draft, appointment, error, muted,
+    turns, phase, caption, stage, draft, appointment, error, muted, guide,
+    guideDone: (id: number) => setGuide((g) => (g?.id === id ? null : g)),
     setError, setMuted, transcribe, sendText, startTalking, stopTalking, stopSpeaking,
     preconnect: () => { void connect(); },
     dismissStage: () => setStage(null),

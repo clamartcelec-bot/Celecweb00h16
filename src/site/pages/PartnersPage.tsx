@@ -19,6 +19,7 @@ function PartnerCard({ p, i, onOpen }: { p: Partner; i: number; onOpen: (p: Part
   return (
     <motion.button
       className="s-partner-card"
+      data-robot-target={`partner-${p.id}`}
       onClick={() => onOpen(p)}
       initial={{ opacity: 0, y: 30 }}
       whileInView={{ opacity: 1, y: 0 }}

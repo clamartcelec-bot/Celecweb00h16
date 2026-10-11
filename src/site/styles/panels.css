@@ -199,6 +199,16 @@ html.dark .s-partner-logo img { filter: invert(1) brightness(1.4) grayscale(1); 
 /* ─── Living carnet ─── */
 .s-cx-bar { position: sticky; top: 76px; z-index: 5; display: flex; gap: 8px; overflow-x: auto; padding: 10px 2px; margin: 8px 0 16px; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 92%, transparent); mask-image: linear-gradient(90deg, #000 92%, transparent); }
 .s-cx-bar::-webkit-scrollbar { display: none; }
+.s-cx-search { display: flex; align-items: center; gap: 12px; max-width: 760px; height: 56px; margin: 8px 0 0; padding: 0 8px 0 20px; border-radius: 999px; background: var(--s-surface); border: 1px solid var(--s-line); box-shadow: 0 1px 2px rgba(21, 22, 26, 0.04); color: var(--s-ink-soft, var(--s-ink)); transition: border-color 0.25s, box-shadow 0.25s; }
+.s-cx-search:focus-within, .s-cx-search.is-on { border-color: var(--s-accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--s-accent) 16%, transparent), 0 10px 30px rgba(21, 22, 26, 0.08); }
+.s-cx-search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--s-ink); font: inherit; font-size: 16px; }
+.s-cx-search input::-webkit-search-cancel-button { display: none; }
+.s-cx-search input::placeholder { color: var(--s-ink-faint, #8a8f98); }
+.s-cx-search button { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: var(--s-ink); transition: background 0.2s; }
+.s-cx-search button:hover { background: var(--s-line); }
+.is-robot-press { animation: s-robot-press 0.55s var(--s-ease, ease-out); }
+@keyframes s-robot-press { 0% { transform: scale(1); } 35% { transform: scale(0.9); box-shadow: 0 0 0 0 color-mix(in srgb, var(--s-accent) 50%, transparent); } 100% { transform: scale(1); box-shadow: 0 0 0 16px transparent; } }
+.is-robot-pick { outline: 3px solid var(--s-accent); outline-offset: 4px; border-radius: 20px; transition: outline-color 0.4s; }
 .s-cx-chip { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-radius: 999px; font-size: 0.875rem; font-weight: 500; color: var(--s-ink-2); background: var(--s-glass, var(--s-surface)); border: 1px solid var(--s-line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); transition: color 0.3s, border-color 0.3s, background 0.3s; }
 .s-cx-chip em { font-style: normal; font-family: var(--s-mono); font-size: 0.72rem; color: var(--s-muted); }
 .s-cx-chip:hover { color: var(--s-ink); border-color: var(--s-accent); }
