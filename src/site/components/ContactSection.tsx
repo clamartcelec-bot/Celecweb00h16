@@ -24,6 +24,7 @@ export function ContactSection({
   onLogin,
   prefill,
   transcribe,
+  onSubmitted,
 }: {
   t: Copy;
   category: ContactCategory | null;
@@ -32,6 +33,7 @@ export function ContactSection({
   onLogin: () => void;
   prefill: { text: string; phone: string; nonce: number } | null;
   transcribe: (blob: Blob, mime: string) => Promise<string>;
+  onSubmitted?: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
@@ -108,6 +110,7 @@ export function ContactSection({
       });
       setRelayed(result.telegram);
       setStatus('sent');
+      onSubmitted?.();
       setText('');
       setPhone('');
       onCategory(null);

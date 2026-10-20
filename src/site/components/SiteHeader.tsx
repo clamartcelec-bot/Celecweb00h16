@@ -4,12 +4,15 @@ import { Check, History, LogOut, Menu, Moon, Settings2, ShieldCheck, Sparkles, S
 import { languages, type Copy } from '@/site/content';
 import { EASE_SOFT } from '@/site/motion';
 import { AccountMenu } from '@/site/components/AccountMenu';
+import { VARIANTS, type SiteVariant } from '@/site/variant';
 import type { Lang, Theme, View } from '@/site/types';
 
 interface Props {
   t: Copy;
   lang: Lang;
   theme: Theme;
+  variant: SiteVariant;
+  onVariant: (v: SiteVariant) => void;
   view: View;
   userEmail: string | null;
   userName: string | null;
@@ -24,7 +27,7 @@ interface Props {
   onConcierge: () => void;
 }
 
-export function SiteHeader({ t, lang, theme, view, userEmail, userName, isAdmin, onSignIn, onSpace, onHistory, onLogout, onLang, onTheme, onNavigate, onConcierge }: Props) {
+export function SiteHeader({ t, lang, theme, variant, onVariant, view, userEmail, userName, isAdmin, onSignIn, onSpace, onHistory, onLogout, onLang, onTheme, onNavigate, onConcierge }: Props) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -179,6 +182,21 @@ export function SiteHeader({ t, lang, theme, view, userEmail, userName, isAdmin,
                         <strong>{l.short}</strong>
                         <span>{l.label}</span>
                         {lang === l.code && <Check size={13} />}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="s-pop-divider" />
+                  <span className="s-pop-label">Version du site</span>
+                  <div className="s-lang-grid">
+                    {VARIANTS.map((v) => (
+                      <button
+                        key={v}
+                        className={`s-lang ${variant === v ? 'is-active' : ''}`}
+                        onClick={() => { onVariant(v); setSettingsOpen(false); }}
+                      >
+                        <strong>{v.toUpperCase()}</strong>
+                        <span>{v === 'v1' ? 'Originale' : v === 'v2' ? 'Sud parisien' : 'Panneau'}</span>
+                        {variant === v && <Check size={13} />}
                       </button>
                     ))}
                   </div>

@@ -252,6 +252,16 @@ export function useConcierge({ photos, partners, userEmail, context, onActions }
     if (parts.length) link.current?.send(systemItem(`Le visiteur a rempli la fiche lui-même : ${parts.join(' ; ')}. Ne redemande pas ces informations, confirme-les seulement.`));
   }, []);
 
+  // Événement observable depuis le site (V2) : informe l'assistant qu'une action est
+  // complétée pour qu'il clôture — remerciement puis fin de conversation.
+  const announceEvent = useCallback((what: 'contact_sent') => {
+    link.current?.send(systemItem(
+      'Le visiteur vient d’envoyer le formulaire de contact lui-même. ' +
+      'Interromps ce que tu disais, remercie-le brièvement (« Merci, au revoir, n’hésitez pas à me solliciter »), ' +
+      'puis conclus la conversation sans demander autre chose.',
+    ));
+  }, []);
+
   const respondToTools = useCallback(async (calls: { name: string; call_id: string; arguments: string }[]) => {
     const l = link.current;
     if (!l) return;
@@ -478,6 +488,7 @@ export function useConcierge({ photos, partners, userEmail, context, onActions }
       return { ok: out.sent === true, error: failure };
     },
     setError, setMuted, transcribe, sendText, startTalking, stopTalking, stopSpeaking,
+    announceEvent,
     preconnect: () => { void connect(); },
     dismissStage: () => setStage(null),
     clearCaption: () => setCaption(null),

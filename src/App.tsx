@@ -28,6 +28,11 @@ import { CarnetPage } from '@/site/pages/CarnetPage';
 import { PartnersPage } from '@/site/pages/PartnersPage';
 import { BlockTechPage } from '@/site/pages/BlockTechPage';
 import { AdminLogin } from '@/site/pages/AdminLogin';
+import { HomeV2 } from '@/site/pages/HomeV2';
+import { useSiteVariant } from '@/site/variant';
+import { AssistantBar, AssistantGuideCursor } from '@/site/concierge/AssistantBar';
+import { useGuideCursor } from '@/site/concierge/useGuideCursor';
+import type { GuideHandlers } from '@/site/concierge/useRobotGuide';
 import '@/site/site.css';
 
 const PHOTO_SELECT = '*, photo_images(id, image_url, caption, position)';
@@ -78,6 +83,14 @@ function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [clientSpace, setClientSpace] = useState<'overview' | 'requests' | null>(null);
   const t = copy[lang];
+  const [variant, setVariant] = useSiteVariant();
+  const guideHandlers: GuideHandlers = {
+    go: (v, family) => runConciergeActions([{ type: 'navigate', view: v, family }]),
+    topic: (id) => { setCarnetQuery(''); setCarnetTopic(id); },
+    type: setCarnetQuery,
+    openEntry: (id) => { const e = photos.find((p) => p.id === id); if (e) openCarnetDetail(e); },
+    openPartner: (id) => { const p = partners.find((x) => x.id === id); if (p) openBrand(p.name, p); },
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -281,6 +294,16 @@ function App() {
     topic: view === 'carnet' ? carnetTopic : undefined,
   }), [conciergeOpen, view, familyKey, carnetTopic]);
   const concierge = useConcierge({ photos, partners, userEmail, context: conciergeContext, onActions: runConciergeActions });
+  const reduceMotion = false;
+  const cursor = useGuideCursor(concierge.guide, concierge.guideDone, guideHandlers, reduceMotion);
+
+  // Clôture automatique (V2) : quand le formulaire est envoyé, l'assistant est
+  // informé, il interrompt, remercie et se rabaisse en boule.
+  const onContactSubmitted = () => {
+    concierge.stopSpeaking();
+    concierge.setError(null);
+    concierge.announceEvent('contact_sent');
+  };
 
   const openFromChat = (entry: Photo) => {
     setConciergeOpen(false);
@@ -309,6 +332,8 @@ function App() {
         t={t}
         lang={lang}
         theme={theme}
+        variant={variant}
+        onVariant={setVariant}
         view={view}
         userEmail={userEmail}
         userName={userName}
@@ -355,7 +380,7 @@ function App() {
                 />
               </>
             )}
-            {view === 'home' && !isClient && (
+            {view === 'home' && !isClient && variant === 'v1' && (
               <>
                 <Hero
                   t={t}
@@ -387,6 +412,33 @@ function App() {
                   prefill={contactPrefill}
                   transcribe={concierge.transcribe}
                 />
+              </>
+            )}
+            {view === 'home' && !isClient && variant !== 'v1' && (
+              <>
+                <HomeV2
+                  photos={photos}
+                  cityGroups={cityGroups}
+                  partners={partners}
+                  onCallback={() => setCallbackOpen(true)}
+                  onSeeCarnet={() => openTopic(null)}
+                  onFamily={(id) => openFamily(id as FamilyKey)}
+                  onOpenEntry={(e) => openCarnetDetail(e)}
+                  onOpenPartner={(p) => openBrand(p.name, p)}
+                  onSeePartners={() => go('partners')}
+                />
+                {variant === 'v2' && (
+                  <ContactSection
+                    t={t}
+                    category={contactCategory}
+                    onCategory={setContactCategory}
+                    userEmail={userEmail}
+                    onLogin={() => setLoginOpen(true)}
+                    prefill={contactPrefill}
+                    transcribe={concierge.transcribe}
+                    onSubmitted={onContactSubmitted}
+                  />
+                )}
               </>
             )}
             {view === 'map' && <MapPage t={t} photos={photos} onOpen={(e) => openCarnetDetail(e)} onBack={() => go('home', 'carte')} />}
@@ -492,7 +544,7 @@ function App() {
       )}
     </AnimatePresence>
 
-    {view !== 'admin-login' && (
+    {view !== 'admin-login' && variant === 'v1' && (
       <RobotDock
         api={concierge}
         lang={lang}
@@ -504,14 +556,21 @@ function App() {
         onOpenEntry={(e) => (conciergeOpen ? openFromChat(e) : openCarnetDetail(e))}
         onOpenPartner={(p) => (conciergeOpen ? partnerFromChat(p) : openBrand(p.name, p))}
         onOpenChat={enterConcierge}
-        guide={{
-          go: (v, family) => runConciergeActions([{ type: 'navigate', view: v, family }]),
-          topic: (id) => { setCarnetQuery(''); setCarnetTopic(id); },
-          type: setCarnetQuery,
-          openEntry: (id) => { const e = photos.find((p) => p.id === id); if (e) openCarnetDetail(e); },
-          openPartner: (id) => { const p = partners.find((x) => x.id === id); if (p) openBrand(p.name, p); },
-        }}
+        guide={guideHandlers}
       />
+    )}
+    {view !== 'admin-login' && variant !== 'v1' && (
+      <>
+        <AssistantGuideCursor x={cursor.x} y={cursor.y} active={cursor.active} pressing={cursor.pressing} />
+        <AssistantBar
+          api={concierge}
+          userName={isClient ? userName : null}
+          photos={photos}
+          partners={partners}
+          onOpenEntry={(e) => openCarnetDetail(e)}
+          onOpenPartner={(p) => openBrand(p.name, p)}
+        />
+      </>
     )}
     </>
   );
