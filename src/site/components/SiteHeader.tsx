@@ -77,6 +77,16 @@ export function SiteHeader({ t, lang, theme, variant, onVariant, view, userEmail
     return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
   }, [links.length]);
 
+  // Self-correction: si la vraie barre déborde encore, on masque un lien de plus.
+  useEffect(() => {
+    const nav = headerRef.current?.querySelector<HTMLElement>('.s-nav');
+    if (!nav) return;
+    const raf = requestAnimationFrame(() => {
+      if (nav.scrollWidth > nav.clientWidth + 1) setFit((f) => Math.max(0, f - 1));
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [fit, view]);
+
   const collapsed = fit < links.length;
   useMotionValueEvent(scrollY, 'change', (y) => setScrolled(y > 24));
 

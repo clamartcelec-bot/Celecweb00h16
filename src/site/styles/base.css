@@ -172,9 +172,9 @@ html.dark .s-aura { opacity: 0.22; }
 .s-hdr--solid { background: var(--s-glass); border-color: var(--s-line); box-shadow: var(--s-shadow-sm); backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6); }
 .s-logo { font-family: var(--s-font); font-size: 1.3rem; font-weight: 600; letter-spacing: -0.045em; color: var(--s-ink); }
 .s-logo span { color: var(--s-accent); }
-.s-nav { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: var(--s-glass); border: 1px solid var(--s-line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.s-nav { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: var(--s-glass); border: 1px solid var(--s-line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); flex-shrink: 1; min-width: 0; overflow: hidden; }
 .s-hdr--solid .s-nav { background: transparent; border-color: transparent; backdrop-filter: none; }
-.s-nav-link { position: relative; isolation: isolate; height: 38px; padding: 0 16px; border-radius: 999px; font-size: 0.9rem; font-weight: 500; color: var(--s-ink-2); transition: color 0.3s; }
+.s-nav-link { position: relative; isolation: isolate; height: 38px; padding: 0 16px; border-radius: 999px; font-size: 0.9rem; font-weight: 500; color: var(--s-ink-2); transition: color 0.3s; white-space: nowrap; flex: none; }
 .s-nav-link:hover, .s-nav-link.is-active { color: var(--s-ink); }
 .s-nav-underline { position: absolute; inset: 0; z-index: -1; border-radius: 999px; background: var(--s-surface); box-shadow: var(--s-shadow-sm); }
 .s-nav-concierge { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 16px; margin-inline-start: 4px; border-radius: 999px; font-size: 0.9rem; font-weight: 500; color: var(--s-accent); background: var(--s-accent-50); transition: background 0.3s, color 0.3s; }
@@ -260,7 +260,6 @@ html.dark .s-aura { opacity: 0.22; }
 @keyframes s-scroll { 0% { transform: translateY(0); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(18px); opacity: 0; } }
 
 @media (max-width: 1080px) {
-  .s-nav { flex-shrink: 1; min-width: 0; overflow: hidden; }
   .s-nav-concierge { padding: 0 12px; }
   .s-nav-concierge-label { display: none; }
   .s-nav-concierge { width: 38px; justify-content: center; }
