@@ -2,7 +2,7 @@
 .s-hero {
   position: relative; isolation: isolate;
   display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: center; gap: clamp(32px, 5vw, 88px);
-  min-height: 100svh; max-width: calc(var(--s-max) + 2 * var(--s-gutter)); margin: 0 auto;
+  min-height: 100svh; max-width: var(--s-max); margin: 0 auto;
   padding: 132px var(--s-gutter) 96px;
 }
 .s-hero-aura { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }

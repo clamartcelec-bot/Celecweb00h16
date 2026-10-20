@@ -32,8 +32,6 @@ export function SiteHeader({ t, lang, theme, variant, onVariant, view, userEmail
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLElement>(null);
-  const mirrorRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll();
 
   const links: { label: string; view: View; anchor?: string }[] = [
@@ -44,68 +42,7 @@ export function SiteHeader({ t, lang, theme, variant, onVariant, view, userEmail
     { label: t.navPartners, view: 'partners' },
   ];
 
-  // How many links fit next to the burger and the Concierge button: measured on the real bar.
-  const [fit, setFit] = useState(links.length);
-
-  useEffect(() => {
-    const header = headerRef.current;
-    const nav = header?.querySelector<HTMLElement>('.s-nav');
-    if (!header || !nav) return;
-    let raf = 0;
-    const step = () => {
-      raf = 0;
-      const kids = Array.from(nav.children) as HTMLElement[];
-      const cs = getComputedStyle(nav);
-      const gap = parseFloat(cs.columnGap || '0') || 0;
-      const used = kids.reduce((s, el) => s + el.offsetWidth, 0) + Math.max(0, kids.length - 1) * gap;
-      const free = nav.clientWidth - used;
-      const mirrorKids = mirrorRef.current ? (Array.from(mirrorRef.current.children) as HTMLElement[]) : [];
-      const nextW = (mirrorKids[fit]?.offsetWidth ?? 0) + gap;
-      setFit((f) => {
-        if (free < -1) return Math.max(0, f - 1);
-        if (f < links.length && free >= nextW) return f + 1;
-        return f;
-      });
-    };
-    const schedule = () => { if (!raf) raf = requestAnimationFrame(step); };
-    const ro = new ResizeObserver(schedule);
-    ro.observe(header);
-    ro.observe(nav);
-    void document.fonts?.ready.then(schedule);
-    return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
-  }, [fit, links.length]);
-
-  useEffect(() => {
-    const header = headerRef.current;
-    const mirror = mirrorRef.current;
-    if (!header || !mirror) return;
-    let raf = 0;
-    const measure = () => {
-      raf = 0;
-      const width = header.clientWidth;
-      const cs = getComputedStyle(header);
-      const logo = header.querySelector<HTMLElement>('.s-logo');
-      const actions = header.querySelector<HTMLElement>('.s-hdr-actions');
-      const pad = parseFloat(cs.paddingLeft || '0') + parseFloat(cs.paddingRight || '0');
-      const gaps = parseFloat(cs.columnGap || '0') * 2;
-      const kids = Array.from(mirror.children) as HTMLElement[];
-      const linkW = kids.slice(0, links.length).map((el) => el.offsetWidth + 2);
-      const conciergeW = (kids[kids.length - 1]?.offsetWidth ?? 0) + 6;
-      const chrome = 50 + 8 + conciergeW;
-      const base = width - pad - gaps - (logo?.offsetWidth ?? 0) - (actions?.offsetWidth ?? 0) - 24;
-      let total = chrome;
-      let k = 0;
-      while (k < links.length && total + linkW[k] <= base) { total += linkW[k]; k++; }
-      setFit(k);
-    };
-    const schedule = () => { if (!raf) raf = requestAnimationFrame(measure); };
-    const ro = new ResizeObserver(schedule);
-    ro.observe(header);
-    void document.fonts?.ready.then(schedule);
-    return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
-  }, [links.length]);
-
-  const collapsed = fit < links.length;
+  const collapsed = false;
   useMotionValueEvent(scrollY, 'change', (y) => setScrolled(y > 24));
 
   useEffect(() => {
@@ -136,7 +73,6 @@ export function SiteHeader({ t, lang, theme, variant, onVariant, view, userEmail
     <>
       <motion.header
         className={`s-hdr ${scrolled || menuOpen ? 's-hdr--solid' : ''}`}
-        ref={headerRef}
         initial={{ y: -40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.9, ease: EASE_SOFT, delay: 0.1 }}
@@ -146,22 +82,16 @@ export function SiteHeader({ t, lang, theme, variant, onVariant, view, userEmail
         </button>
 
         <nav className="s-nav" aria-label="Navigation principale">
-          <div className="s-nav-mirror" ref={mirrorRef} aria-hidden="true">
-            {links.map((link) => (
-              <span key={link.label} className="s-nav-link" tabIndex={-1}>{link.label}</span>
-            ))}
-            <span className="s-nav-concierge" tabIndex={-1}><Sparkles size={14} />{t.navConcierge}</span>
-          </div>
-          {links.slice(0, fit).map((link) => {
+          {links.map((link, index) => {
             const active = !link.anchor && view === link.view;
             return (
-              <button key={link.label} data-robot-target={`nav-${link.anchor ?? link.view}`} className={`s-nav-link ${active ? 'is-active' : ''}`} onClick={() => navigate(link.view, link.anchor)}>
+              <button key={link.label} data-robot-target={`nav-${link.anchor ?? link.view}`} data-nav-index={index} className={`s-nav-link ${active ? 'is-active' : ''}`} onClick={() => navigate(link.view, link.anchor)}>
                 {link.label}
                 {active && <motion.span layoutId="nav-underline" className="s-nav-underline" />}
               </button>
             );
           })}
-          <button className={`s-icon-btn s-burger ${collapsed ? 'is-needed' : ''}`} onClick={() => setMenuOpen((v) => !v)} aria-label="Menu" aria-expanded={menuOpen}>
+          <button className="s-icon-btn s-burger is-needed" onClick={() => setMenuOpen((v) => !v)} aria-label="Menu" aria-expanded={menuOpen}>
             {menuOpen ? <X size={19} /> : <Menu size={19} />}
           </button>
           <button className="s-nav-concierge" onClick={onConcierge} aria-label={t.navConcierge}>
