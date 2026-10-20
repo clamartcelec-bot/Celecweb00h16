@@ -46,7 +46,7 @@
   --s-r-lg: 28px;
   --s-r-xl: 40px;
   --s-gutter: clamp(20px, 5vw, 72px);
-  --s-max: 1320px;
+  --s-max: 1400px;
   --s-ease: cubic-bezier(0.32, 0.72, 0, 1);
 }
 

@@ -44,8 +44,36 @@ export function SiteHeader({ t, lang, theme, variant, onVariant, view, userEmail
     { label: t.navPartners, view: 'partners' },
   ];
 
-  // How many links fit next to the burger and the Concierge button.
+  // How many links fit next to the burger and the Concierge button: measured on the real bar.
   const [fit, setFit] = useState(links.length);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    const nav = header?.querySelector<HTMLElement>('.s-nav');
+    if (!header || !nav) return;
+    let raf = 0;
+    const step = () => {
+      raf = 0;
+      const kids = Array.from(nav.children) as HTMLElement[];
+      const cs = getComputedStyle(nav);
+      const gap = parseFloat(cs.columnGap || '0') || 0;
+      const used = kids.reduce((s, el) => s + el.offsetWidth, 0) + Math.max(0, kids.length - 1) * gap;
+      const free = nav.clientWidth - used;
+      const mirrorKids = mirrorRef.current ? (Array.from(mirrorRef.current.children) as HTMLElement[]) : [];
+      const nextW = (mirrorKids[fit]?.offsetWidth ?? 0) + gap;
+      setFit((f) => {
+        if (free < -1) return Math.max(0, f - 1);
+        if (f < links.length && free >= nextW) return f + 1;
+        return f;
+      });
+    };
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(step); };
+    const ro = new ResizeObserver(schedule);
+    ro.observe(header);
+    ro.observe(nav);
+    void document.fonts?.ready.then(schedule);
+    return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
+  }, [fit, links.length]);
 
   useEffect(() => {
     const header = headerRef.current;
@@ -76,16 +104,6 @@ export function SiteHeader({ t, lang, theme, variant, onVariant, view, userEmail
     void document.fonts?.ready.then(schedule);
     return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
   }, [links.length]);
-
-  // Self-correction: si la vraie barre déborde encore, on masque un lien de plus.
-  useEffect(() => {
-    const nav = headerRef.current?.querySelector<HTMLElement>('.s-nav');
-    if (!nav) return;
-    const raf = requestAnimationFrame(() => {
-      if (nav.scrollWidth > nav.clientWidth + 1) setFit((f) => Math.max(0, f - 1));
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [fit, view]);
 
   const collapsed = fit < links.length;
   useMotionValueEvent(scrollY, 'change', (y) => setScrolled(y > 24));

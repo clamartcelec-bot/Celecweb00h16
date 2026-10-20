@@ -118,7 +118,7 @@ html.dark .s-brand-hero img { filter: invert(1) brightness(1.4) grayscale(1); }
 .s-callback-form { display: grid; gap: 12px; width: 100%; }
 
 /* ─── Inner pages ─── */
-.s-page { position: relative; isolation: isolate; max-width: calc(var(--s-max) + 2 * var(--s-gutter)); margin: 0 auto; padding: 140px var(--s-gutter) 64px; min-height: 80vh; }
+.s-page { position: relative; isolation: isolate; max-width: min(calc(100% - 28px), var(--s-max)); margin: 0 auto; padding: 140px var(--s-gutter) 64px; min-height: 80vh; }
 .s-page-intro { position: relative; display: grid; justify-items: start; gap: 22px; margin-bottom: clamp(48px, 6vw, 88px); }
 .s-page-intro .s-aura--page { z-index: -1; }
 .s-page-title { font-size: clamp(3rem, 8vw, 7rem); font-weight: 600; line-height: 0.98; letter-spacing: -0.055em; }
