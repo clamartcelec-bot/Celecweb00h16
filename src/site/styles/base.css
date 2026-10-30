@@ -161,7 +161,7 @@ html.dark .s-aura { opacity: 0.22; }
 
 /* ─── Header ─── */
 .s-hdr {
-  position: fixed; z-index: 60; top: 14px; left: 50%; transform: translateX(-50%);
+  position: fixed; z-index: 60; top: 14px; left: 0; right: 0; margin-inline: auto;
   width: min(calc(100% - 28px), var(--s-max));
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px;
   padding: 10px 10px 10px 22px; border-radius: 999px;
